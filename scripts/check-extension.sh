@@ -14,11 +14,15 @@ check_module background.js
 check_module popup.js
 check_module providers.js
 check_module focus-toggle.js
+check_module test-connection.js
 node --check content.js
 node --check ui.js
 node --check focus.js
 
 # 逻辑单元测试：验证专注模式的状态同步与样式应用
 node tests/focus.test.mjs
+
+# 模块完整性检查：验证 popup 拆分后的导入导出与元素对应关系
+node tests/popup-modules.test.mjs
 
 echo "All extension scripts passed syntax check."

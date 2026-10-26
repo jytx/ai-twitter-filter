@@ -19,6 +19,7 @@ FILES=(
   ui.js
   focus.js
   focus-toggle.js
+  test-connection.js
   providers.js
   popup.html
   popup.js

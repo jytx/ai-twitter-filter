@@ -1,5 +1,5 @@
-import { getApiUrl } from "./providers.js";
 import { loadFocusMode, bindFocusModeToggle } from "./focus-toggle.js";
+import { bindTestConnection } from "./test-connection.js";
 
 const DEFAULT_SETTINGS = {
   enabled: true,
@@ -318,93 +318,5 @@ els.deleteSavedFilter.addEventListener("click", () => {
   showStatus("Filter deleted");
 });
 
-// ---- Test Connection ----
-
-// 测试请求超时（毫秒）：慢模型冷启动也可能较久，给足余量
-const TEST_TIMEOUT_MS = 20000;
-
-// 在测试按钮旁展示结果：ok 为 true 绿色、false 红色
-function showTestResult(msg, ok) {
-  els.testResult.textContent = msg;
-  els.testResult.className = "test-result" + (msg ? (ok ? " ok" : " err") : "");
-}
-
-// 用当前输入框里的配置发一次最小真实请求（max_tokens=1，消耗可忽略），
-// 验证地址可达、密钥有效、模型可用；错误信息直接回显帮助定位
-async function runTestConnection() {
-  const provider = els.apiProvider.value;
-  const apiKey = els.apiKey.value.trim();
-  const model = provider === "openrouter" ? els.modelSelect.value : els.model.value.trim();
-  const customBaseUrl = els.customBaseUrl.value.trim();
-
-  if (provider === "custom" && !customBaseUrl) {
-    showTestResult("Fill in the Base URL first", false);
-    return;
-  }
-  if (!apiKey) {
-    showTestResult("Fill in the API key first", false);
-    return;
-  }
-  if (!model) {
-    showTestResult("Fill in the model name first", false);
-    return;
-  }
-
-  const url = getApiUrl({ apiProvider: provider, customBaseUrl });
-
-  // 自定义域名需先获得授权（按钮点击属于用户手势，可弹出权限请求）
-  const granted = await requestOriginPermission(url);
-  if (!granted) {
-    showTestResult("Permission denied for this domain", false);
-    return;
-  }
-
-  els.testConnection.disabled = true;
-  els.testConnection.textContent = "Testing...";
-  showTestResult("", true);
-
-  // 超时中断，避免网络问题时按钮长时间卡在 Testing 状态
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
-
-  try {
-    const headers = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    };
-    if (provider === "openrouter") {
-      headers["HTTP-Referer"] = "https://github.com/ai-twitter-filter";
-      headers["X-Title"] = "AI Twitter Filter";
-    }
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        max_tokens: 1,
-        messages: [{ role: "user", content: "Reply with OK" }],
-      }),
-    });
-
-    if (res.ok) {
-      showTestResult("Connected — API works", true);
-    } else {
-      const errText = (await res.text()).slice(0, 120);
-      showTestResult(`HTTP ${res.status} ${errText}`, false);
-    }
-  } catch (err) {
-    const msg =
-      err.name === "AbortError"
-        ? `Timed out after ${TEST_TIMEOUT_MS / 1000}s`
-        : "Network error — check the URL";
-    showTestResult(msg, false);
-  } finally {
-    clearTimeout(timer);
-    els.testConnection.disabled = false;
-    els.testConnection.textContent = "Test Connection";
-  }
-}
-
-els.testConnection.addEventListener("click", runTestConnection);
+// 测试连接功能独立成模块，此处仅负责绑定
+bindTestConnection(els, requestOriginPermission);
