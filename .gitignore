@@ -1,5 +1,16 @@
 node_modules/
 
+logs/
+
+.video_agent/
+
+dist/
+
+website/dist/
+website/.astro/
+website/public/assets/
+website/public/favicon.png
+
 *.png
 !icons/*.png
 !announcement-video/public/*.png
