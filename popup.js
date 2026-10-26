@@ -17,10 +17,12 @@ const els = {
   filterReplies: document.getElementById("filterReplies"),
   apiProvider: document.getElementById("apiProvider"),
   apiKey: document.getElementById("apiKey"),
+  apiKeyStatus: document.getElementById("apiKeyStatus"),
   customBaseUrl: document.getElementById("customBaseUrl"),
   customBaseUrlField: document.getElementById("customBaseUrlField"),
   customBaseUrlStatus: document.getElementById("customBaseUrlStatus"),
   model: document.getElementById("model"),
+  modelStatus: document.getElementById("modelStatus"),
   modelTextField: document.getElementById("modelTextField"),
   modelSelect: document.getElementById("modelSelect"),
   modelSelectField: document.getElementById("modelSelectField"),
@@ -38,6 +40,8 @@ const els = {
 const BUILTIN_ORIGINS = ["https://api.openai.com", "https://openrouter.ai"];
 
 let currentSavedFilters = [];
+// 上次已保存的 Base URL：失焦保存时用于判断是否需要重新请求域名授权
+let lastSavedBaseUrl = "";
 
 function updateModelVisibility(provider) {
   // openrouter 用预置模型下拉；openai 与 custom 用文本框自由填写模型名
@@ -99,17 +103,26 @@ function showStatusFor(msg, durationMs) {
   }, durationMs);
 }
 
-// Base URL 就地状态提示（显示在输入框正下方，成功绿/失败红，6 秒后消失）
-let baseUrlStatusTimer = null;
-function showBaseUrlStatus(msg, ok) {
-  const el = els.customBaseUrlStatus;
+// 通用就地状态提示：写入指定元素并 6 秒后自动清除；
+// 每个元素独立定时器，避免多条提示互相干扰
+const fieldStatusTimers = new Map();
+
+function showFieldStatus(el, msg, ok) {
   el.textContent = msg;
   el.className = "field-status" + (msg ? (ok ? " ok" : " err") : "");
-  if (baseUrlStatusTimer) clearTimeout(baseUrlStatusTimer);
-  baseUrlStatusTimer = setTimeout(() => {
-    el.textContent = "";
-    baseUrlStatusTimer = null;
-  }, 6000);
+  const old = fieldStatusTimers.get(el);
+  if (old) clearTimeout(old);
+  fieldStatusTimers.set(
+    el,
+    setTimeout(() => {
+      el.textContent = "";
+      fieldStatusTimers.delete(el);
+    }, 6000)
+  );
+}
+
+function showBaseUrlStatus(msg, ok) {
+  showFieldStatus(els.customBaseUrlStatus, msg, ok);
 }
 
 // Load saved settings（经 background 读取，密钥会从本地存储获取并完成旧版迁移）
@@ -122,6 +135,7 @@ chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
   els.model.value = settings.model;
   els.filterPrompt.value = settings.filterPrompt;
   els.customBaseUrl.value = settings.customBaseUrl || "";
+  lastSavedBaseUrl = els.customBaseUrl.value.trim();
 
   updateModelVisibility(settings.apiProvider);
   els.apiKeyNotice.style.display = settings.apiKey ? "none" : "block";
@@ -177,16 +191,17 @@ els.apiProvider.addEventListener("change", () => {
   }
 });
 
-els.customBaseUrl.addEventListener("change", () => {
+els.customBaseUrl.addEventListener("blur", () => {
   const urlText = els.customBaseUrl.value.trim();
   if (!urlText) {
-    save("customBaseUrl", "");
+    if (lastSavedBaseUrl) {
+      save("customBaseUrl", "");
+      lastSavedBaseUrl = "";
+    }
     return;
   }
 
-  // 校验 URL 格式：合法即立即保存（保证 background 马上用上新地址），
-  // 权限请求独立进行——此前"权限通过才保存"会导致权限被拒时地址静默不生效，
-  // 输入框显示新地址而实际仍请求旧地址
+  // 校验 URL 格式：非法则不保存并提示
   let origin;
   try {
     origin = new URL(urlText.includes("://") ? urlText : `https://${urlText}`).origin;
@@ -199,9 +214,13 @@ els.customBaseUrl.addEventListener("change", () => {
   // 保存成功立即提示，不依赖权限请求结果（权限 promise 异常不应吞掉保存反馈）
   showBaseUrlStatus("Base URL saved", true);
 
-  if (BUILTIN_ORIGINS.includes(origin)) return;
+  const changed = urlText !== lastSavedBaseUrl;
+  lastSavedBaseUrl = urlText;
 
-  // 自定义域名请求授权，结果仅用于覆盖提示：
+  // 值未变化或内置厂商域名时无需请求授权
+  if (!changed || BUILTIN_ORIGINS.includes(origin)) return;
+
+  // 值变化的自定义域名请求授权，结果仅用于覆盖提示：
   // 拒绝或手势丢失（request 会直接抛错而非返回 false）时指引点 Test Connection 补授权
   chrome.permissions
     .request({ origins: [`${origin}/*`] })
@@ -215,13 +234,17 @@ els.customBaseUrl.addEventListener("change", () => {
     });
 });
 
-els.apiKey.addEventListener("change", () => {
-  saveApiKey(els.apiKey.value);
-  els.apiKeyNotice.style.display = els.apiKey.value ? "none" : "block";
+els.apiKey.addEventListener("blur", () => {
+  // 失焦即保存（storage 写入幂等），不依赖 change 的值比较
+  saveApiKey(els.apiKey.value.trim());
+  showFieldStatus(els.apiKeyStatus, "API key saved", true);
+  els.apiKeyNotice.style.display = els.apiKey.value.trim() ? "none" : "block";
 });
 
-els.model.addEventListener("change", () => {
-  save("model", els.model.value);
+els.model.addEventListener("blur", () => {
+  // 失焦即保存，并就地提示（openai / custom 模式下的文本输入框）
+  save("model", els.model.value.trim());
+  showFieldStatus(els.modelStatus, "Model saved", true);
 });
 
 els.modelSelect.addEventListener("change", () => {
