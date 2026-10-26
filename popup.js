@@ -19,6 +19,7 @@ const els = {
   apiKey: document.getElementById("apiKey"),
   customBaseUrl: document.getElementById("customBaseUrl"),
   customBaseUrlField: document.getElementById("customBaseUrlField"),
+  customBaseUrlStatus: document.getElementById("customBaseUrlStatus"),
   model: document.getElementById("model"),
   modelTextField: document.getElementById("modelTextField"),
   modelSelect: document.getElementById("modelSelect"),
@@ -98,6 +99,19 @@ function showStatusFor(msg, durationMs) {
   }, durationMs);
 }
 
+// Base URL 就地状态提示（显示在输入框正下方，成功绿/失败红，6 秒后消失）
+let baseUrlStatusTimer = null;
+function showBaseUrlStatus(msg, ok) {
+  const el = els.customBaseUrlStatus;
+  el.textContent = msg;
+  el.className = "field-status" + (msg ? (ok ? " ok" : " err") : "");
+  if (baseUrlStatusTimer) clearTimeout(baseUrlStatusTimer);
+  baseUrlStatusTimer = setTimeout(() => {
+    el.textContent = "";
+    baseUrlStatusTimer = null;
+  }, 6000);
+}
+
 // Load saved settings（经 background 读取，密钥会从本地存储获取并完成旧版迁移）
 chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
   if (chrome.runtime.lastError || !settings) settings = DEFAULT_SETTINGS;
@@ -154,7 +168,10 @@ els.apiProvider.addEventListener("change", () => {
     // 已填有 Base URL 时顺带请求对应域名授权
     if (els.customBaseUrl.value.trim()) {
       requestOriginPermission(els.customBaseUrl.value).then((granted) => {
-        showStatus(granted ? "Permission granted" : "Permission denied");
+        showBaseUrlStatus(
+          granted ? "Permission granted" : "Permission denied — click Test Connection to grant",
+          granted
+        );
       });
     }
   }
@@ -174,14 +191,14 @@ els.customBaseUrl.addEventListener("change", () => {
   try {
     origin = new URL(urlText.includes("://") ? urlText : `https://${urlText}`).origin;
   } catch {
-    showStatusFor("Invalid URL — not saved", 4000);
+    showBaseUrlStatus("Invalid URL — not saved", false);
     return;
   }
 
   save("customBaseUrl", urlText);
 
   if (BUILTIN_ORIGINS.includes(origin)) {
-    showStatus("Base URL saved");
+    showBaseUrlStatus("Base URL saved", true);
     return;
   }
 
@@ -189,9 +206,9 @@ els.customBaseUrl.addEventListener("change", () => {
   // 提示用户点 Test Connection 重新触发授权（按钮点击带用户手势）
   chrome.permissions.request({ origins: [`${origin}/*`] }).then((granted) => {
     if (granted) {
-      showStatus("Base URL saved");
+      showBaseUrlStatus("Base URL saved", true);
     } else {
-      showStatusFor("Saved, but permission denied — click Test Connection to grant access", 6000);
+      showBaseUrlStatus("Saved — permission denied, click Test Connection to grant access", false);
     }
   });
 });
