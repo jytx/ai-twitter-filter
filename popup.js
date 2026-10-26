@@ -82,11 +82,20 @@ function renderSavedFilters() {
   }
 }
 
+let statusTimer = null;
+
 function showStatus(msg) {
+  showStatusFor(msg, 2000);
+}
+
+// 状态提示并指定显示时长（毫秒）；清掉旧定时器避免提前清掉新文案
+function showStatusFor(msg, durationMs) {
   els.status.textContent = msg;
-  setTimeout(() => {
+  if (statusTimer) clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
     els.status.textContent = "";
-  }, 2000);
+    statusTimer = null;
+  }, durationMs);
 }
 
 // Load saved settings（经 background 读取，密钥会从本地存储获取并完成旧版迁移）
@@ -158,14 +167,32 @@ els.customBaseUrl.addEventListener("change", () => {
     return;
   }
 
-  // 先校验 URL 并请求域名授权，通过后才保存（无权限的自定义地址无法使用）
-  requestOriginPermission(urlText).then((granted) => {
-    if (!granted) {
-      showStatus("Invalid URL or permission denied");
-      return;
-    }
-    save("customBaseUrl", urlText);
+  // 校验 URL 格式：合法即立即保存（保证 background 马上用上新地址），
+  // 权限请求独立进行——此前"权限通过才保存"会导致权限被拒时地址静默不生效，
+  // 输入框显示新地址而实际仍请求旧地址
+  let origin;
+  try {
+    origin = new URL(urlText.includes("://") ? urlText : `https://${urlText}`).origin;
+  } catch {
+    showStatusFor("Invalid URL — not saved", 4000);
+    return;
+  }
+
+  save("customBaseUrl", urlText);
+
+  if (BUILTIN_ORIGINS.includes(origin)) {
     showStatus("Base URL saved");
+    return;
+  }
+
+  // 自定义域名请求授权；被拒时地址已保存但请求会被浏览器拦截，
+  // 提示用户点 Test Connection 重新触发授权（按钮点击带用户手势）
+  chrome.permissions.request({ origins: [`${origin}/*`] }).then((granted) => {
+    if (granted) {
+      showStatus("Base URL saved");
+    } else {
+      showStatusFor("Saved, but permission denied — click Test Connection to grant access", 6000);
+    }
   });
 });
 
