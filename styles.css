@@ -1,3 +1,12 @@
+/* 展开态横幅与推文内容上下排列：
+   X 的推文 article 自带 flex row（r-18u37iz 等原子类），会把 prepend 的横幅
+   与恢复显示的内容左右并排；借助我们写入的 data-ai-filter-processed 属性
+   选择器（特异性高于单个原子类）改回纵向并拉伸全宽 */
+article[data-ai-filter-processed="true"] {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 /* Banner shown when a tweet is hidden：上下两行布局，
    避免理由文字与右侧按钮同行时被挤压折行 */
 .ai-filter-banner {
