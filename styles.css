@@ -57,13 +57,18 @@ article[data-ai-filter-processed="true"] {
   white-space: nowrap;
   background: none;
   border: none;
+  border-radius: 9999px;
   font-size: 13px;
+  font-weight: 600;
   font-family: inherit;
-  padding: 0;
+  /* 扩大点击热区：纯文字形态热区过小，容易点空 */
+  padding: 4px 14px;
+  margin: -2px -8px -2px 0;
 }
 
 .ai-filter-banner-show:hover {
-  text-decoration: underline;
+  text-decoration: none;
+  background: rgba(29, 155, 240, 0.1);
 }
 
 /* Loading spinner shown while tweet is being evaluated */

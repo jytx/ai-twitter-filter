@@ -68,7 +68,9 @@ function createBanner(author, reason) {
     e.stopPropagation();
     const article = banner.closest("article");
     if (!article) return;
-    if (article.classList.contains("ai-filter-hidden")) {
+    // 以按钮文字为状态源：横幅是我们创建的节点，不受 X 重渲染覆写影响；
+    // article 上的标记 class 仅作样式钩子同步维护
+    if (btn.textContent === "Show") {
       article.classList.remove("ai-filter-hidden");
       showChildren(article);
       btn.textContent = "Hide";
