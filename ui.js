@@ -40,18 +40,21 @@ function removeLoader(article) {
   if (loader) loader.remove();
 }
 
-// 创建折叠横幅：作者 + 隐藏原因 + Show 展开按钮
+// 创建折叠横幅：第一行为图标 + 作者 + 隐藏原因（整行宽度），
+// 第二行为 Show/Hide 切换按钮（靠右），上下布局避免理由文字被按钮挤压折行
 function createBanner(author, reason) {
   const banner = document.createElement("div");
   banner.className = "ai-filter-banner";
   banner.innerHTML = `
-    <svg class="ai-filter-banner-icon" viewBox="0 0 24 24">
-      <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L12 10.94l7.22-7.22a.75.75 0 1 1 1.06 1.06L13.06 12l7.22 7.22a.75.75 0 1 1-1.06 1.06L12 13.06l-7.22 7.22a.75.75 0 0 1-1.06-1.06L10.94 12 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
-    </svg>
-    <span class="ai-filter-banner-text">
-      <span class="ai-filter-banner-author"></span>
-      <span class="ai-filter-banner-reason"></span>
-    </span>
+    <div class="ai-filter-banner-head">
+      <svg class="ai-filter-banner-icon" viewBox="0 0 24 24">
+        <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L12 10.94l7.22-7.22a.75.75 0 1 1 1.06 1.06L13.06 12l7.22 7.22a.75.75 0 1 1-1.06 1.06L12 13.06l-7.22 7.22a.75.75 0 0 1-1.06-1.06L10.94 12 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+      </svg>
+      <span class="ai-filter-banner-text">
+        <span class="ai-filter-banner-author"></span>
+        <span class="ai-filter-banner-reason"></span>
+      </span>
+    </div>
     <button class="ai-filter-banner-show">Show</button>
   `;
   banner.querySelector(".ai-filter-banner-author").textContent = author;
