@@ -17,6 +17,8 @@ FILES=(
   background.js
   content.js
   ui.js
+  focus.js
+  focus-toggle.js
   providers.js
   popup.html
   popup.js

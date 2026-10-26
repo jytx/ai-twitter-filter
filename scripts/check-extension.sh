@@ -13,7 +13,9 @@ check_module() {
 check_module background.js
 check_module popup.js
 check_module providers.js
+check_module focus-toggle.js
 node --check content.js
 node --check ui.js
+node --check focus.js
 
 echo "All extension scripts passed syntax check."

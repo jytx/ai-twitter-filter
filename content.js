@@ -295,5 +295,5 @@
   });
 
   // 构建标记：用于在控制台区分新旧代码（排查扩展未重载问题）
-  console.log("AI Twitter Filter - Content script loaded [build 1.0.1-b1]");
+  console.log("AI Twitter Filter - Content script loaded [build 1.1.0]");
 })();

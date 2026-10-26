@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "AI Twitter Filter",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Filter tweets on X.com using AI based on your custom criteria",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": [
     "https://api.openai.com/*",
     "https://openrouter.ai/*"
@@ -20,7 +20,7 @@
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["ui.js", "content.js"],
+      "js": ["ui.js", "focus.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }

@@ -1,4 +1,5 @@
 import { getApiUrl } from "./providers.js";
+import { loadFocusMode, bindFocusModeToggle } from "./focus-toggle.js";
 
 const DEFAULT_SETTINGS = {
   enabled: true,
@@ -15,6 +16,7 @@ const DEFAULT_SETTINGS = {
 const els = {
   enabled: document.getElementById("enabled"),
   filterReplies: document.getElementById("filterReplies"),
+  focusMode: document.getElementById("focusMode"),
   apiProvider: document.getElementById("apiProvider"),
   apiKey: document.getElementById("apiKey"),
   apiKeyStatus: document.getElementById("apiKeyStatus"),
@@ -148,6 +150,9 @@ chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
   renderSavedFilters();
 });
 
+// 专注模式状态存在 local 存储（与页面内悬浮按钮共用同一份）
+loadFocusMode(els.focusMode);
+
 // Auto-save on change
 function save(key, value) {
   chrome.storage.sync.set({ [key]: value });
@@ -165,6 +170,9 @@ els.enabled.addEventListener("change", () => {
 els.filterReplies.addEventListener("change", () => {
   save("filterReplies", els.filterReplies.checked);
 });
+
+// 专注模式开关：写入 local 存储后通知所有 x.com 标签页立即生效
+bindFocusModeToggle(els.focusMode);
 
 els.apiProvider.addEventListener("change", () => {
   const provider = els.apiProvider.value;
