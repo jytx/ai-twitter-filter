@@ -3,7 +3,7 @@
   "type": "module",
   "version": "1.0.0",
   "scripts": {
-    "copy-assets": "mkdir -p public/assets/screenshots public/assets/images public/assets/video && cp ../screenshots/*.png public/assets/screenshots/ && cp ../icon-cropped.png ../filtered-tweets.png ../filtering-tweets.png public/assets/images/ && cp ../announcement-video/out/announcement-with-music.mp4 public/assets/video/",
+    "copy-assets": "mkdir -p public/assets/screenshots public/assets/images public/assets/video && cp ../announcement-video/out/screenshot-1-hero.png public/assets/screenshots/screenshot-hero.png && cp ../announcement-video/out/screenshot-2-filtering.png ../announcement-video/out/screenshot-3-filtered.png ../announcement-video/out/screenshot-4-features.png public/assets/screenshots/ && cp ../announcement-video/public/icon-cropped.png ../filtered-tweets.png ../filtering-tweets.png public/assets/images/ && cp ../announcement-video/public/full-icon.png public/favicon.png && cp ../announcement-video/out/announcement-with-music.mp4 public/assets/video/",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview"
