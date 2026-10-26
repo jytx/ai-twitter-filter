@@ -2,6 +2,7 @@ import { getApiUrl } from "./providers.js";
 
 const DEFAULT_SETTINGS = {
   enabled: true,
+  filterReplies: false,
   apiProvider: "openai",
   apiKey: "",
   model: "gpt-4o-mini",
@@ -13,6 +14,7 @@ const DEFAULT_SETTINGS = {
 
 const els = {
   enabled: document.getElementById("enabled"),
+  filterReplies: document.getElementById("filterReplies"),
   apiProvider: document.getElementById("apiProvider"),
   apiKey: document.getElementById("apiKey"),
   customBaseUrl: document.getElementById("customBaseUrl"),
@@ -91,6 +93,7 @@ function showStatus(msg) {
 chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
   if (chrome.runtime.lastError || !settings) settings = DEFAULT_SETTINGS;
   els.enabled.checked = settings.enabled;
+  els.filterReplies.checked = settings.filterReplies === true;
   els.apiProvider.value = settings.apiProvider;
   els.apiKey.value = settings.apiKey;
   els.model.value = settings.model;
@@ -120,6 +123,10 @@ function saveApiKey(value) {
 
 els.enabled.addEventListener("change", () => {
   save("enabled", els.enabled.checked);
+});
+
+els.filterReplies.addEventListener("change", () => {
+  save("filterReplies", els.filterReplies.checked);
 });
 
 els.apiProvider.addEventListener("change", () => {

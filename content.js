@@ -1,5 +1,7 @@
 (() => {
   let enabled = true;
+  // 是否对评论（回复推文）也做 AI 验证；默认关闭，时间线上的回复直接放行
+  let filterReplies = false;
   let debounceTimer = null;
   const pendingTweets = new Map(); // hash -> { element, text }
   const processedHashes = new Map(); // hash -> { hide: boolean, reason: string }
@@ -35,82 +37,32 @@
     return "Unknown";
   }
 
-  // ---- DOM manipulation helpers ----
-
-  function hideChildren(article) {
-    for (const child of article.children) {
-      if (
-        child.classList.contains("ai-filter-banner") ||
-        child.classList.contains("ai-filter-loader")
-      )
-        continue;
-      child.style.setProperty("display", "none", "important");
-    }
-  }
-
-  function showChildren(article) {
-    for (const child of article.children) {
-      if (
-        child.classList.contains("ai-filter-banner") ||
-        child.classList.contains("ai-filter-loader")
-      )
-        continue;
-      child.style.removeProperty("display");
-    }
-  }
-
-  function addLoader(article) {
-    if (article.querySelector(".ai-filter-loader")) return;
-    const loader = document.createElement("div");
-    loader.className = "ai-filter-loader";
-    loader.innerHTML = `
-      <div class="ai-filter-spinner"></div>
-      <span>Checking tweet...</span>
-    `;
-    article.prepend(loader);
-  }
-
-  function removeLoader(article) {
-    const loader = article.querySelector(".ai-filter-loader");
-    if (loader) loader.remove();
-  }
-
-  function createBanner(author, reason) {
-    const banner = document.createElement("div");
-    banner.className = "ai-filter-banner";
-    banner.innerHTML = `
-      <svg class="ai-filter-banner-icon" viewBox="0 0 24 24">
-        <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L12 10.94l7.22-7.22a.75.75 0 1 1 1.06 1.06L13.06 12l7.22 7.22a.75.75 0 1 1-1.06 1.06L12 13.06l-7.22 7.22a.75.75 0 0 1-1.06-1.06L10.94 12 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
-      </svg>
-      <span class="ai-filter-banner-text">
-        <span class="ai-filter-banner-author"></span>
-        <span class="ai-filter-banner-reason"></span>
-      </span>
-      <button class="ai-filter-banner-show">Show</button>
-    `;
-    banner.querySelector(".ai-filter-banner-author").textContent = author;
-    const reasonEl = banner.querySelector(".ai-filter-banner-reason");
-    reasonEl.textContent = reason ? ` \u2014 ${reason}` : " \u2014 hidden by AI filter";
-    banner.querySelector(".ai-filter-banner-show").addEventListener(
-      "click",
-      (e) => {
-        e.stopPropagation();
-        const article = banner.closest("article");
-        if (article) {
-          article.classList.remove("ai-filter-hidden");
-          showChildren(article);
-          banner.remove();
-        }
-      }
-    );
-    return banner;
+  // 判断是否为评论（回复推文）：推文顶部的上下文条里出现 @ 开头的 handle，
+  // 即 "Replying to @xxx" / “回复 @xxx”，该特征与界面语言无关。
+  // 用整条 innerText 判断而非内部 span 结构，避免依赖 X 的内部 DOM 细节
+  function isReplyTweet(article) {
+    const ctx = article.querySelector('div[data-testid="socialContext"]');
+    if (!ctx) return false;
+    return ctx.innerText.includes("@");
   }
 
   // ---- Tweet processing ----
 
+  // 判断是否为详情页（/<用户>/status/<id>，含 analytics、photo 等变体）：
+  // 详情页只做过滤，不做筛选
+  function isDetailPage() {
+    return location.pathname.includes("/status/");
+  }
+
   function processTweet(article) {
     if (!enabled) return;
     if (article.dataset.aiFilterProcessed) return;
+
+    // 详情页不筛选：直接跳过且不标记 processed，便于返回列表页后重新处理
+    if (isDetailPage()) return;
+
+    // 评论默认不验证：直接跳过且不标记 processed，用户开启开关后可重新处理
+    if (!filterReplies && isReplyTweet(article)) return;
 
     const text = extractTweetText(article);
     if (!text) return;
@@ -243,7 +195,31 @@
   observer.observe(document.body, { childList: true, subtree: true });
 
   // Process tweets already on the page
-  document.querySelectorAll('article[data-testid="tweet"]').forEach(processTweet);
+  if (!isDetailPage()) {
+    document.querySelectorAll('article[data-testid="tweet"]').forEach(processTweet);
+  }
+
+  // ---- SPA 路由检测 ----
+  // X 切换页面不刷新（SPA），轮询检测地址变化：
+  // 进入详情页时恢复所有隐藏状态，返回列表页时重新扫描
+  let lastPathname = location.pathname;
+
+  function handleRouteChange() {
+    // 路由切换后 DOM 会重建，先清掉旧标记与横幅
+    resetAll();
+    // 返回列表页才重新筛选；已判定过的推文命中 background 缓存，不会重复调 API
+    if (!isDetailPage()) {
+      document
+        .querySelectorAll('article[data-testid="tweet"]')
+        .forEach(processTweet);
+    }
+  }
+
+  setInterval(() => {
+    if (location.pathname === lastPathname) return;
+    lastPathname = location.pathname;
+    handleRouteChange();
+  }, 500);
 
   // ---- Message listener ----
 
@@ -267,6 +243,15 @@
           .querySelectorAll('article[data-testid="tweet"]')
           .forEach(processTweet);
       }
+
+      // 回复验证开关变化时，重置所有标记并重新扫描当前页面
+      if ("filterReplies" in message.changes) {
+        filterReplies = message.changes.filterReplies === true;
+        resetAll();
+        document
+          .querySelectorAll('article[data-testid="tweet"]')
+          .forEach(processTweet);
+      }
     }
   });
 
@@ -274,8 +259,10 @@
   chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
     if (settings) {
       enabled = settings.enabled;
+      filterReplies = settings.filterReplies === true;
     }
   });
 
-  console.log("AI Twitter Filter - Content script loaded");
+  // 构建标记：用于在控制台区分新旧代码（排查扩展未重载问题）
+  console.log("AI Twitter Filter - Content script loaded [build 1.0.1-b1]");
 })();

@@ -6,6 +6,7 @@ const cache = new Map();
 
 const DEFAULT_SETTINGS = {
   enabled: true,
+  filterReplies: false,
   apiProvider: "openai",
   apiKey: "",
   model: "gpt-4o-mini",

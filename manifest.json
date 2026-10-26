@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Twitter Filter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Filter tweets on X.com using AI based on your custom criteria",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -20,7 +20,7 @@
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["content.js"],
+      "js": ["ui.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }
