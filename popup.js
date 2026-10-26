@@ -17,6 +17,7 @@ const els = {
   enabled: document.getElementById("enabled"),
   filterReplies: document.getElementById("filterReplies"),
   focusMode: document.getElementById("focusMode"),
+  focusModeStatus: document.getElementById("focusModeStatus"),
   apiProvider: document.getElementById("apiProvider"),
   apiKey: document.getElementById("apiKey"),
   apiKeyStatus: document.getElementById("apiKeyStatus"),
@@ -127,6 +128,16 @@ function showBaseUrlStatus(msg, ok) {
   showFieldStatus(els.customBaseUrlStatus, msg, ok);
 }
 
+// 常驻状态提示：不自动清除，直到下次状态变化覆盖它。
+// 用于专注模式这类需要用户持续确认是否生效的反馈
+function showPersistentStatus(el, msg, ok) {
+  el.textContent = msg;
+  el.className = "field-status" + (msg ? (ok ? " ok" : " err") : "");
+  const old = fieldStatusTimers.get(el);
+  if (old) clearTimeout(old);
+  fieldStatusTimers.delete(el);
+}
+
 // Load saved settings（经 background 读取，密钥会从本地存储获取并完成旧版迁移）
 chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
   if (chrome.runtime.lastError || !settings) settings = DEFAULT_SETTINGS;
@@ -172,7 +183,10 @@ els.filterReplies.addEventListener("change", () => {
 });
 
 // 专注模式开关：写入 local 存储后通知所有 x.com 标签页立即生效
-bindFocusModeToggle(els.focusMode);
+// 同步结果在开关下方就地反馈，便于判断是"已生效"还是"标签页未响应"
+bindFocusModeToggle(els.focusMode, (msg, ok) => {
+  showPersistentStatus(els.focusModeStatus, msg, ok);
+});
 
 els.apiProvider.addEventListener("change", () => {
   const provider = els.apiProvider.value;
