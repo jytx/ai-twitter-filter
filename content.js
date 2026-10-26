@@ -100,6 +100,9 @@
     const elements = new Map();
 
     for (const [hash, data] of pendingTweets) {
+      // 节点已被 X 滚动销毁的条目直接丢弃：判定结果无处应用，
+      // 节点重建时会重新走完整流程，不存在漏判缝隙
+      if (!data.element.isConnected) continue;
       batch.push({ hash, text: data.text });
       elements.set(hash, data.element);
     }
@@ -178,13 +181,33 @@
 
   // ---- DOM observer ----
 
+  // 视口观察：推文接近视口（提前 800px）才发起判定。
+  // X 会预渲染视口外较远的节点，立即判定会让快速滚动产生大量
+  // 用户并未停留观看的请求；接近视口再处理，请求集中在真实可见内容上。
+  // 已判定的节点由 processTweet 的 dataset 守卫自然跳过
+  const viewportObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        viewportObserver.unobserve(entry.target);
+        processTweet(entry.target);
+      }
+    },
+    { rootMargin: "800px 0px" }
+  );
+
+  // 统一入口：新出现的推文先观察视口，接近可见时才判定
+  function queueTweet(article) {
+    viewportObserver.observe(article);
+  }
+
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
         if (node.nodeType !== Node.ELEMENT_NODE) continue;
 
         if (node.matches?.('article[data-testid="tweet"]')) {
-          processTweet(node);
+          queueTweet(node);
         }
 
         const articles = node.querySelectorAll?.(
@@ -192,7 +215,7 @@
         );
         if (articles) {
           for (const article of articles) {
-            processTweet(article);
+            queueTweet(article);
           }
         }
       }
@@ -203,7 +226,7 @@
 
   // Process tweets already on the page
   if (!isDetailPage()) {
-    document.querySelectorAll('article[data-testid="tweet"]').forEach(processTweet);
+    document.querySelectorAll('article[data-testid="tweet"]').forEach(queueTweet);
   }
 
   // ---- SPA 路由检测 ----
@@ -219,7 +242,7 @@
     if (!isDetailPage()) {
       document
         .querySelectorAll('article[data-testid="tweet"]')
-        .forEach(processTweet);
+        .forEach(queueTweet);
     }
   }
 
@@ -241,7 +264,7 @@
           resetAll();
           document
             .querySelectorAll('article[data-testid="tweet"]')
-            .forEach(processTweet);
+            .forEach(queueTweet);
         }
       }
 
@@ -249,7 +272,7 @@
         resetAll();
         document
           .querySelectorAll('article[data-testid="tweet"]')
-          .forEach(processTweet);
+          .forEach(queueTweet);
       }
 
       // 回复验证开关变化时，重置所有标记并重新扫描当前页面
@@ -258,7 +281,7 @@
         resetAll();
         document
           .querySelectorAll('article[data-testid="tweet"]')
-          .forEach(processTweet);
+          .forEach(queueTweet);
       }
     }
   });
