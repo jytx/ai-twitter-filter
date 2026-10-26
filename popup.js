@@ -196,21 +196,23 @@ els.customBaseUrl.addEventListener("change", () => {
   }
 
   save("customBaseUrl", urlText);
+  // 保存成功立即提示，不依赖权限请求结果（权限 promise 异常不应吞掉保存反馈）
+  showBaseUrlStatus("Base URL saved", true);
 
-  if (BUILTIN_ORIGINS.includes(origin)) {
-    showBaseUrlStatus("Base URL saved", true);
-    return;
-  }
+  if (BUILTIN_ORIGINS.includes(origin)) return;
 
-  // 自定义域名请求授权；被拒时地址已保存但请求会被浏览器拦截，
-  // 提示用户点 Test Connection 重新触发授权（按钮点击带用户手势）
-  chrome.permissions.request({ origins: [`${origin}/*`] }).then((granted) => {
-    if (granted) {
-      showBaseUrlStatus("Base URL saved", true);
-    } else {
-      showBaseUrlStatus("Saved — permission denied, click Test Connection to grant access", false);
-    }
-  });
+  // 自定义域名请求授权，结果仅用于覆盖提示：
+  // 拒绝或手势丢失（request 会直接抛错而非返回 false）时指引点 Test Connection 补授权
+  chrome.permissions
+    .request({ origins: [`${origin}/*`] })
+    .then((granted) => {
+      if (!granted) {
+        showBaseUrlStatus("Saved — permission denied, click Test Connection to grant", false);
+      }
+    })
+    .catch(() => {
+      showBaseUrlStatus("Saved — click Test Connection to grant access", false);
+    });
 });
 
 els.apiKey.addEventListener("change", () => {
