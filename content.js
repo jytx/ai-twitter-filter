@@ -159,14 +159,21 @@
     });
   }
 
-  function resetAll() {
+  // 仅重置 DOM 侧状态：移除横幅/加载动画并恢复显示，清掉节点上的处理标记
+  // （路由切换时使用：X 会重建推文 DOM，但判定结果可复用）
+  function resetDomState() {
     unhideAll();
-    processedHashes.clear();
-    pendingTweets.clear();
     document.querySelectorAll("[data-ai-filter-processed]").forEach((el) => {
       delete el.dataset.aiFilterProcessed;
       delete el.dataset.aiFilterHash;
     });
+  }
+
+  // 完整重置：DOM 状态 + 判定缓存（仅设置变化需要重新判定时使用）
+  function resetAll() {
+    resetDomState();
+    processedHashes.clear();
+    pendingTweets.clear();
   }
 
   // ---- DOM observer ----
@@ -205,9 +212,10 @@
   let lastPathname = location.pathname;
 
   function handleRouteChange() {
-    // 路由切换后 DOM 会重建，先清掉旧标记与横幅
-    resetAll();
-    // 返回列表页才重新筛选；已判定过的推文命中 background 缓存，不会重复调 API
+    // 进出详情页时 X 会重建推文 DOM，旧节点标记随节点销毁；
+    // 仅重置 DOM 状态并保留判定缓存（processedHashes）——
+    // 返回列表后同批推文直接应用已有判定，不再重走 Checking 动画与防抖等待
+    resetDomState();
     if (!isDetailPage()) {
       document
         .querySelectorAll('article[data-testid="tweet"]')
