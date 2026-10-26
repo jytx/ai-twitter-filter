@@ -1,8 +1,11 @@
+import { getApiUrl } from "./providers.js";
+
 const DEFAULT_SETTINGS = {
   enabled: true,
   apiProvider: "openai",
   apiKey: "",
   model: "gpt-4o-mini",
+  customBaseUrl: "",
   filterPrompt:
     "Is this tweet negative, toxic, or complaining? Reply with true to hide it, false to keep it.",
   savedFilters: [],
@@ -12,6 +15,8 @@ const els = {
   enabled: document.getElementById("enabled"),
   apiProvider: document.getElementById("apiProvider"),
   apiKey: document.getElementById("apiKey"),
+  customBaseUrl: document.getElementById("customBaseUrl"),
+  customBaseUrlField: document.getElementById("customBaseUrlField"),
   model: document.getElementById("model"),
   modelTextField: document.getElementById("modelTextField"),
   modelSelect: document.getElementById("modelSelect"),
@@ -21,19 +26,42 @@ const els = {
   deleteSavedFilter: document.getElementById("deleteSavedFilter"),
   filterPrompt: document.getElementById("filterPrompt"),
   saveFilter: document.getElementById("saveFilter"),
+  testConnection: document.getElementById("testConnection"),
+  testResult: document.getElementById("testResult"),
   status: document.getElementById("status"),
 };
+
+// 内置厂商的域名已在 manifest host_permissions 中声明，无需动态授权
+const BUILTIN_ORIGINS = ["https://api.openai.com", "https://openrouter.ai"];
 
 let currentSavedFilters = [];
 
 function updateModelVisibility(provider) {
-  if (provider === "openrouter") {
-    els.modelTextField.style.display = "none";
-    els.modelSelectField.style.display = "";
-  } else {
-    els.modelTextField.style.display = "";
-    els.modelSelectField.style.display = "none";
+  // openrouter 用预置模型下拉；openai 与 custom 用文本框自由填写模型名
+  const useModelSelect = provider === "openrouter";
+  els.modelTextField.style.display = useModelSelect ? "none" : "";
+  els.modelSelectField.style.display = useModelSelect ? "" : "none";
+
+  // custom 模式额外显示 Base URL 输入框，并放宽模型名占位提示
+  els.customBaseUrlField.style.display = provider === "custom" ? "" : "none";
+  els.model.placeholder = provider === "custom" ? "e.g. deepseek-chat" : "gpt-4o-mini";
+}
+
+// 为自定义厂商请求主机权限（必须在用户手势事件内调用，如 change）
+// URL 无法解析或用户拒绝授权时返回 false；内置厂商域名直接视为通过
+async function requestOriginPermission(urlText) {
+  const trimmed = urlText.trim();
+  if (!trimmed) return false;
+
+  let origin;
+  try {
+    origin = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).origin;
+  } catch {
+    return false;
   }
+  if (BUILTIN_ORIGINS.includes(origin)) return true;
+
+  return chrome.permissions.request({ origins: [`${origin}/*`] });
 }
 
 function renderSavedFilters() {
@@ -67,6 +95,7 @@ chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
   els.apiKey.value = settings.apiKey;
   els.model.value = settings.model;
   els.filterPrompt.value = settings.filterPrompt;
+  els.customBaseUrl.value = settings.customBaseUrl || "";
 
   updateModelVisibility(settings.apiProvider);
   els.apiKeyNotice.style.display = settings.apiKey ? "none" : "block";
@@ -100,10 +129,37 @@ els.apiProvider.addEventListener("change", () => {
 
   if (provider === "openrouter") {
     save("model", els.modelSelect.value);
-  } else {
+  } else if (provider === "openai") {
     save("model", "gpt-4o-mini");
     els.model.value = "gpt-4o-mini";
+  } else {
+    // custom：模型名由用户自由填写，保留当前输入
+    save("model", els.model.value);
+    // 已填有 Base URL 时顺带请求对应域名授权
+    if (els.customBaseUrl.value.trim()) {
+      requestOriginPermission(els.customBaseUrl.value).then((granted) => {
+        showStatus(granted ? "Permission granted" : "Permission denied");
+      });
+    }
   }
+});
+
+els.customBaseUrl.addEventListener("change", () => {
+  const urlText = els.customBaseUrl.value.trim();
+  if (!urlText) {
+    save("customBaseUrl", "");
+    return;
+  }
+
+  // 先校验 URL 并请求域名授权，通过后才保存（无权限的自定义地址无法使用）
+  requestOriginPermission(urlText).then((granted) => {
+    if (!granted) {
+      showStatus("Invalid URL or permission denied");
+      return;
+    }
+    save("customBaseUrl", urlText);
+    showStatus("Base URL saved");
+  });
 });
 
 els.apiKey.addEventListener("change", () => {
@@ -163,3 +219,94 @@ els.deleteSavedFilter.addEventListener("click", () => {
   renderSavedFilters();
   showStatus("Filter deleted");
 });
+
+// ---- Test Connection ----
+
+// 测试请求超时（毫秒）：慢模型冷启动也可能较久，给足余量
+const TEST_TIMEOUT_MS = 20000;
+
+// 在测试按钮旁展示结果：ok 为 true 绿色、false 红色
+function showTestResult(msg, ok) {
+  els.testResult.textContent = msg;
+  els.testResult.className = "test-result" + (msg ? (ok ? " ok" : " err") : "");
+}
+
+// 用当前输入框里的配置发一次最小真实请求（max_tokens=1，消耗可忽略），
+// 验证地址可达、密钥有效、模型可用；错误信息直接回显帮助定位
+async function runTestConnection() {
+  const provider = els.apiProvider.value;
+  const apiKey = els.apiKey.value.trim();
+  const model = provider === "openrouter" ? els.modelSelect.value : els.model.value.trim();
+  const customBaseUrl = els.customBaseUrl.value.trim();
+
+  if (provider === "custom" && !customBaseUrl) {
+    showTestResult("Fill in the Base URL first", false);
+    return;
+  }
+  if (!apiKey) {
+    showTestResult("Fill in the API key first", false);
+    return;
+  }
+  if (!model) {
+    showTestResult("Fill in the model name first", false);
+    return;
+  }
+
+  const url = getApiUrl({ apiProvider: provider, customBaseUrl });
+
+  // 自定义域名需先获得授权（按钮点击属于用户手势，可弹出权限请求）
+  const granted = await requestOriginPermission(url);
+  if (!granted) {
+    showTestResult("Permission denied for this domain", false);
+    return;
+  }
+
+  els.testConnection.disabled = true;
+  els.testConnection.textContent = "Testing...";
+  showTestResult("", true);
+
+  // 超时中断，避免网络问题时按钮长时间卡在 Testing 状态
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
+
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    };
+    if (provider === "openrouter") {
+      headers["HTTP-Referer"] = "https://github.com/ai-twitter-filter";
+      headers["X-Title"] = "AI Twitter Filter";
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Reply with OK" }],
+      }),
+    });
+
+    if (res.ok) {
+      showTestResult("Connected — API works", true);
+    } else {
+      const errText = (await res.text()).slice(0, 120);
+      showTestResult(`HTTP ${res.status} ${errText}`, false);
+    }
+  } catch (err) {
+    const msg =
+      err.name === "AbortError"
+        ? `Timed out after ${TEST_TIMEOUT_MS / 1000}s`
+        : "Network error — check the URL";
+    showTestResult(msg, false);
+  } finally {
+    clearTimeout(timer);
+    els.testConnection.disabled = false;
+    els.testConnection.textContent = "Test Connection";
+  }
+}
+
+els.testConnection.addEventListener("click", runTestConnection);

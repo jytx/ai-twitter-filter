@@ -170,3 +170,28 @@ button:hover {
   color: #536471;
   line-height: 1.4;
 }
+
+/* 测试连接：按钮与结果同行展示 */
+.test-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.test-row button {
+  flex-shrink: 0;
+}
+
+.test-result {
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.test-result.ok {
+  color: #00ba7c;
+}
+
+.test-result.err {
+  color: #f4212e;
+}

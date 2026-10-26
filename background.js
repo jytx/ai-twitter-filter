@@ -1,3 +1,5 @@
+import { getApiUrl } from "./providers.js";
+
 // 判定结果缓存：内存 Map 作为一级缓存，并镜像持久化到 chrome.storage.session，
 // 避免 MV3 Service Worker 被回收后缓存丢失、刷新页面时重复调用 API
 const cache = new Map();
@@ -7,6 +9,7 @@ const DEFAULT_SETTINGS = {
   apiProvider: "openai",
   apiKey: "",
   model: "gpt-4o-mini",
+  customBaseUrl: "",
   filterPrompt: "Is this tweet negative, toxic, or complaining? Reply with true to hide it, false to keep it.",
 };
 
@@ -37,15 +40,8 @@ async function getSettings() {
   return { ...syncData, apiKey };
 }
 
-function getApiUrl(provider) {
-  if (provider === "openrouter") {
-    return "https://openrouter.ai/api/v1/chat/completions";
-  }
-  return "https://api.openai.com/v1/chat/completions";
-}
-
 async function evaluateWithAI(tweets, settings) {
-  const url = getApiUrl(settings.apiProvider);
+  const url = getApiUrl(settings);
 
   const systemPrompt = `You are a tweet filter. The user has set this filter criteria:
 

@@ -26,7 +26,13 @@
       <select id="apiProvider">
         <option value="openai">OpenAI</option>
         <option value="openrouter">OpenRouter</option>
+        <option value="custom">Custom (OpenAI-compatible)</option>
       </select>
+    </div>
+
+    <div class="field" id="customBaseUrlField" style="display: none;">
+      <label for="customBaseUrl">API Base URL</label>
+      <input type="text" id="customBaseUrl" placeholder="https://api.deepseek.com/v1">
     </div>
 
     <div class="field">
@@ -54,6 +60,14 @@
     </div>
 
     <div class="field">
+      <label>Test Connection</label>
+      <div class="test-row">
+        <button id="testConnection">Test Connection</button>
+        <span id="testResult" class="test-result"></span>
+      </div>
+    </div>
+
+    <div class="field">
       <label for="savedFilters">Saved Filters</label>
       <div class="saved-filters-row">
         <select id="savedFilters">
@@ -74,6 +88,6 @@
     </div>
   </div>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
