@@ -133,7 +133,18 @@
   // 注入右下角悬浮按钮（幂等，重复调用不会重复插入）
   function injectButton() {
     if (buttonInjected && document.getElementById(BUTTON_ID)) return;
-    if (!document.body) return;
+    // body 尚未就绪时无法挂载：等待 DOMContentLoaded 后重试
+    if (!document.body) {
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          injectButton();
+          updateButton();
+        },
+        { once: true }
+      );
+      return;
+    }
 
     const btn = document.createElement("button");
     btn.id = BUTTON_ID;
@@ -183,6 +194,16 @@
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type !== "FOCUS_MODE_UPDATED") return;
     focusEnabled = message.focusMode === true;
+    injectButton();
+    syncState();
+  });
+
+  // 监听本地存储变化：这是最可靠的同步通道。
+  // popup 写入 focusMode 后，background 的 storage.onChanged 只处理 sync 区域，
+  // local 区域的变化不会转发；由内容脚本自行监听可保证任何打开时机都能生效
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !("focusMode" in changes)) return;
+    focusEnabled = changes.focusMode.newValue === true;
     injectButton();
     syncState();
   });

@@ -18,4 +18,7 @@ node --check content.js
 node --check ui.js
 node --check focus.js
 
+# 逻辑单元测试：验证专注模式的状态同步与样式应用
+node tests/focus.test.mjs
+
 echo "All extension scripts passed syntax check."
