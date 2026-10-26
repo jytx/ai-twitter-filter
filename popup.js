@@ -59,8 +59,9 @@ function showStatus(msg) {
   }, 2000);
 }
 
-// Load saved settings
-chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
+// Load saved settings（经 background 读取，密钥会从本地存储获取并完成旧版迁移）
+chrome.runtime.sendMessage({ type: "GET_SETTINGS" }, (settings) => {
+  if (chrome.runtime.lastError || !settings) settings = DEFAULT_SETTINGS;
   els.enabled.checked = settings.enabled;
   els.apiProvider.value = settings.apiProvider;
   els.apiKey.value = settings.apiKey;
@@ -83,6 +84,11 @@ function save(key, value) {
   chrome.storage.sync.set({ [key]: value });
 }
 
+// API 密钥只保存在本地（chrome.storage.local），不随 Chrome 账号同步上传
+function saveApiKey(value) {
+  chrome.storage.local.set({ apiKey: value });
+}
+
 els.enabled.addEventListener("change", () => {
   save("enabled", els.enabled.checked);
 });
@@ -101,7 +107,7 @@ els.apiProvider.addEventListener("change", () => {
 });
 
 els.apiKey.addEventListener("change", () => {
-  save("apiKey", els.apiKey.value);
+  saveApiKey(els.apiKey.value);
   els.apiKeyNotice.style.display = els.apiKey.value ? "none" : "block";
 });
 
