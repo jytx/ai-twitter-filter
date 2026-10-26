@@ -133,6 +133,18 @@ async function clearAllCache() {
   await chrome.storage.session.remove("filterCache");
 }
 
+// 在途请求去重：hash -> 判定结果 Promise
+// 结果返回前同一推文再次进入（滚动重排的新 DOM 实例、路由切换重扫、
+// 多标签页并发）时，复用同一在途请求，避免同文重复调用 API
+const inflight = new Map();
+
+// 从一批判定结果中提取指定推文的结果；模型漏答该条时按放行兜底
+function pickVerdict(verdicts, hash) {
+  const found = verdicts.find((v) => v.id === hash);
+  if (found) return { hide: found.hide, reason: found.reason || "" };
+  return { hide: false, reason: "" };
+}
+
 loadCacheFromSession();
 
 async function handleEvaluateTweets(tweets) {
@@ -142,28 +154,37 @@ async function handleEvaluateTweets(tweets) {
     return tweets.map((t) => ({ id: t.hash, hide: false }));
   }
 
-  // Split into cached and uncached
+  // 拆分：已缓存 / 在途（复用同一结果）/ 需新判定
   const results = [];
+  const waiting = [];
   const uncached = [];
 
   for (const tweet of tweets) {
     if (cache.has(tweet.hash)) {
       const cached = cache.get(tweet.hash);
       results.push({ id: tweet.hash, hide: cached.hide, reason: cached.reason });
+    } else if (inflight.has(tweet.hash)) {
+      waiting.push({ id: tweet.hash, promise: inflight.get(tweet.hash) });
     } else {
       uncached.push(tweet);
     }
   }
 
-  if (uncached.length === 0) {
-    return results;
-  }
-
   // Process in batches of 15
   for (let i = 0; i < uncached.length; i += 15) {
     const batch = uncached.slice(i, i + 15);
+
+    // 发起前同步登记在途 Promise，让并发到达的请求立即观察到并复用
+    const verdictsPromise = rateLimitedEvaluate(batch, settings);
+    for (const tweet of batch) {
+      inflight.set(
+        tweet.hash,
+        verdictsPromise.then((verdicts) => pickVerdict(verdicts, tweet.hash))
+      );
+    }
+
     try {
-      const verdicts = await rateLimitedEvaluate(batch, settings);
+      const verdicts = await verdictsPromise;
       for (const verdict of verdicts) {
         cache.set(verdict.id, { hide: verdict.hide, reason: verdict.reason || "" });
         results.push(verdict);
@@ -176,7 +197,15 @@ async function handleEvaluateTweets(tweets) {
       for (const tweet of batch) {
         results.push({ id: tweet.hash, hide: false });
       }
+    } finally {
+      for (const tweet of batch) inflight.delete(tweet.hash);
     }
+  }
+
+  // 等待复用的在途结果并合并返回；在途请求失败时按放行兜底
+  for (const w of waiting) {
+    const verdict = await w.promise.catch(() => ({ hide: false, reason: "" }));
+    results.push({ id: w.id, hide: verdict.hide, reason: verdict.reason });
   }
 
   return results;
