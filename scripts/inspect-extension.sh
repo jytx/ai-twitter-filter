@@ -23,7 +23,7 @@ if ! curl -s --max-time 3 "http://127.0.0.1:$PORT/json/version" >/dev/null 2>&1;
 fi
 
 {
-  echo "===== 扩展安装信息（chrome://extensions）====="
+  echo "===== 扩展安装信息 ====="
   node "$ROOT/tests/find-ext-path.mjs" "$PORT"
 
   echo ""

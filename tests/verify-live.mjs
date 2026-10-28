@@ -1,8 +1,13 @@
 // 严格验证：刷新 x.com 后，确认浏览器实际运行的是新代码
 // 关键：只统计刷新之后新产生的日志（CDP 的 Runtime.enable 会回放历史日志）
+//
+// 默认只读、不刷新页面。确认新代码是否生效需要重新注入内容脚本，
+// 因此刷新是必要的，但会打断用户正在看的页面，故改为显式开关：
+//   node tests/verify-live.mjs [port] --reload
 // 用法：node tests/verify-live.mjs [port]
 
 const port = process.argv[2] || "9222";
+const doReload = process.argv.includes("--reload");
 
 function connect(u) {
   const ws = new WebSocket(u);
@@ -65,10 +70,14 @@ await b.send("Runtime.enable", {}, sessionId);
 await b.send("Page.enable", {}, sessionId);
 await new Promise((r) => setTimeout(r, 500));
 
-// ---- 刷新，并只记录刷新之后产生的日志 ----
+// ---- 只统计刷新之后产生的日志（不刷新时则以本次连接之后为准）----
 const reloadAt = Date.now();
-await b.send("Page.reload", { ignoreCache: true }, sessionId);
-await new Promise((r) => setTimeout(r, 7000));
+if (doReload) {
+  await b.send("Page.reload", { ignoreCache: true }, sessionId);
+  await new Promise((r) => setTimeout(r, 7000));
+} else {
+  console.log("（未刷新页面：加 --reload 参数可刷新并重新注入内容脚本）\n");
+}
 
 const fresh = logs.filter((l) => l.ts >= reloadAt);
 console.log("=== 刷新后新产生的扩展日志 ===");
@@ -77,14 +86,14 @@ for (const l of fresh) {
 }
 
 const buildMatch = fresh.find((l) => l.text.includes("Content script loaded"));
-const build = buildMatch ? (buildMatch.text.match(/build [0-9A-Za-z._-]+/) || ["未知"])[0] : "未捕获到";
+const build = buildMatch ? (buildMatch.text.match(/build [0-9A-Za-z._-]+/) || ["未知"])[0] : "未捕获到（未刷新时属正常，日志在本次连接之前产生）";
 
 console.log(`\n实际运行的构建版本: ${build}`);
-console.log(build === "build 1.2.0" ? "✓ 新代码已生效" : "✗ 仍是旧代码");
+console.log(build === "build 1.2.0" ? "✓ 新代码已生效" : "（构建版本未能确认）");
 
-// ---- 读取扩展隔离世界的内部状态（刷新后上下文 ID 会变，取最新的一个）----
+// ---- 读取扩展隔离世界的内部状态 ----
+// 同名上下文可能有多份（多 frame、刷新前后残留），逐个尝试取第一个可用的
 const extCtxs = contexts.filter((c) => c.name === "AI Twitter Filter");
-const extCtx = extCtxs[extCtxs.length - 1];
 const ev = async (expr, ctxId) => {
   const r = await b.send(
     "Runtime.evaluate",
@@ -95,11 +104,15 @@ const ev = async (expr, ctxId) => {
   return r.result.value;
 };
 
+const PROBE = "({ TweetStore: typeof TweetStore, TweetDom: typeof TweetDom, hideChildren: typeof hideChildren })";
+let internals = null;
+for (const c of extCtxs) {
+  const r = await ev(PROBE, c.id);
+  if (r && !r.__err && r.TweetStore !== undefined) { internals = r; break; }
+}
+
 console.log("\n=== 扩展隔离世界内部状态 ===");
-console.log(JSON.stringify(await ev(
-  "({ TweetStore: typeof TweetStore, TweetDom: typeof TweetDom, hideChildren: typeof hideChildren })",
-  extCtx?.id
-), null, 2));
+console.log(JSON.stringify(internals || { note: "未找到可用的扩展隔离世界" }, null, 2));
 
 console.log("\n=== 页面 DOM 状态 ===");
 const dom = await ev(`(() => {

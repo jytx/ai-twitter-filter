@@ -89,21 +89,30 @@ if (page) {
   await browser.send("Runtime.enable", {}, sessionId);
   await new Promise((r) => setTimeout(r, 800));
 
-  const extCtx = contexts.find((c) => c.name === EXT_NAME);
+  // 同名上下文可能有多份（多 frame、刷新前后残留），逐个尝试取第一个可用的
+  const extCtxs = contexts.filter((c) => c.name === EXT_NAME);
+  const ev = async (expr, ctxId) => {
+    const r = await browser.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true, ...(ctxId ? { contextId: ctxId } : {}) }, sessionId);
+    if (r.exceptionDetails) return { __err: JSON.stringify(r.exceptionDetails).slice(0, 250) };
+    return r.result.value;
+  };
+
+  const PROBE = "({ TweetStore: typeof TweetStore, TweetDom: typeof TweetDom, hideChildren: typeof hideChildren })";
+  let extCtx = null;
+  let probe = null;
+  for (const c of extCtxs) {
+    const r = await ev(PROBE, c.id);
+    if (r && !r.__err && r.TweetStore !== undefined) { extCtx = c; probe = r; break; }
+  }
+
   if (extCtx) {
-    const ev = async (expr) => {
-      const r = await browser.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true, contextId: extCtx.id }, sessionId);
-      if (r.exceptionDetails) return { __err: JSON.stringify(r.exceptionDetails).slice(0, 250) };
-      return r.result.value;
-    };
     console.log("\n=== 页面隔离世界中的全局对象 ===");
-    console.log(JSON.stringify(await ev(
-      "({ TweetStore: typeof TweetStore, TweetDom: typeof TweetDom, hideChildren: typeof hideChildren, processedHashes: typeof processedHashes })"
-    ), null, 2));
+    console.log(JSON.stringify(probe, null, 2));
 
     console.log("\n=== 扩展内部实时状态 ===");
     console.log(JSON.stringify(await ev(
-      "({ 判定缓存条数: typeof processedHashes !== 'undefined' ? processedHashes.size : 'n/a', 待判定条数: typeof pendingTweets !== 'undefined' ? pendingTweets.size : 'n/a' })"
+      "({ 判定缓存条数: typeof processedHashes !== 'undefined' ? processedHashes.size : 'n/a', 待判定条数: typeof pendingTweets !== 'undefined' ? pendingTweets.size : 'n/a' })",
+      extCtx.id
     ), null, 2));
   }
 }
