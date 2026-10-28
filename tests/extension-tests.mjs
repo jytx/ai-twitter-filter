@@ -219,12 +219,27 @@ async function evaluate(cdp, expression) {
             );
             return child ? getComputedStyle(child).visibility : "(无子元素)";
           });
+          // 加载指示器用伪元素绘制，读其计算样式确认存在且为绝对定位
+          const spinnerStyle = pending.length
+            ? getComputedStyle(pending[0], "::before")
+            : {};
+          const labelStyle = pending.length
+            ? getComputedStyle(pending[0], "::after")
+            : {};
           return {
             total: arts.length,
             pending: pending.length,
             pendingHeights: pending.map(a => Math.round(a.getBoundingClientRect().height)),
             hiddenChildren,
             visibilityOfPending,
+            spinnerStyle: {
+              animationName: spinnerStyle.animationName || "",
+              position: spinnerStyle.position || "",
+            },
+            labelStyle: {
+              content: labelStyle.content || "",
+              position: labelStyle.position || "",
+            },
             loaders: document.querySelectorAll('.ai-filter-loader').length,
             stats: window.__stats,
           };
@@ -253,6 +268,19 @@ async function evaluate(cdp, expression) {
     outcome.loaders === 0,
     `加载动画数量=${outcome.loaders}`
   );
+  check(
+    "判定中有 loading 指示器（旋转圆圈 + 提示文字）",
+    outcome.spinnerStyle.animationName === "ai-filter-spin" &&
+      outcome.spinnerStyle.position === "absolute" &&
+      outcome.labelStyle.content.includes("Checking"),
+    `圆圈=${outcome.spinnerStyle.animationName}/${outcome.spinnerStyle.position} 文字="${outcome.labelStyle.content}" (position=${outcome.labelStyle.position})`
+  );
+  check(
+    "loading 指示器为绝对定位，不参与布局（不改变推文高度）",
+    outcome.spinnerStyle.position === "absolute" &&
+      outcome.labelStyle.position === "absolute",
+    `圆圈 position=${outcome.spinnerStyle.position} 文字 position=${outcome.labelStyle.position}`
+  );
 }
 
 // ============ 用例 1b：判定期间不触发强制同步布局 ============
@@ -267,7 +295,10 @@ async function evaluate(cdp, expression) {
     },
     scenario: async (cdp) => {
       await sleep(1200);
-      const before = await evaluate(cdp, `window.__stats.extReflows`);
+      const before = await evaluate(
+        cdp,
+        `({ reflows: window.__stats.extReflows, styleReads: window.__stats.extStyleReads })`
+      );
 
       // 滚动一段距离，触发一批新推文进入观察带
       for (let i = 0; i < 8; i++) {
@@ -276,15 +307,23 @@ async function evaluate(cdp, expression) {
       }
       await sleep(1000);
 
-      const after = await evaluate(cdp, `window.__stats.extReflows`);
+      const after = await evaluate(
+        cdp,
+        `({ reflows: window.__stats.extReflows, styleReads: window.__stats.extStyleReads })`
+      );
       return { before, after };
     },
   });
 
   check(
     "判定过程中扩展未发起强制同步布局（避免 layout thrashing）",
-    outcome.after - outcome.before <= 2,
-    `扩展强制布局次数 ${outcome.before} → ${outcome.after}（新增 ${outcome.after - outcome.before}）`
+    outcome.after.reflows - outcome.before.reflows <= 2,
+    `扩展强制布局次数 ${outcome.before.reflows} → ${outcome.after.reflows}（新增 ${outcome.after.reflows - outcome.before.reflows}）`
+  );
+  check(
+    "样式读取次数与处理的推文数同量级（每条至多一次）",
+    outcome.after.styleReads - outcome.before.styleReads <= 20,
+    `扩展样式读取次数 ${outcome.before.styleReads} → ${outcome.after.styleReads}（新增 ${outcome.after.styleReads - outcome.before.styleReads}）`
   );
 }
 
@@ -444,8 +483,15 @@ async function evaluate(cdp, expression) {
           const banners = document.querySelectorAll('.ai-filter-banner');
           const hidden = document.querySelectorAll('.ai-filter-hidden');
           const loaders = document.querySelectorAll('.ai-filter-loader');
-          const heights = [...hidden].map(a => Math.round(a.getBoundingClientRect().height));
-          return { banners: banners.length, hidden: hidden.length, loaders: loaders.length, heights };
+          const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
+          return {
+            banners: banners.length,
+            hidden: hidden.length,
+            loaders: loaders.length,
+            // 判定结束后不应残留临时补上的定位方式
+            leftoverPosition: arts.filter(a => a.dataset.aiFilterPositionAdded).length,
+            pendingMarks: arts.filter(a => a.dataset.aiFilterPending).length,
+          };
         })()`
       );
     },
@@ -455,6 +501,11 @@ async function evaluate(cdp, expression) {
     "判定为隐藏的推文显示折叠横幅且加载动画已移除",
     outcome.banners > 0 && outcome.loaders === 0,
     `banners=${outcome.banners} hidden=${outcome.hidden} loaders=${outcome.loaders}`
+  );
+  check(
+    "判定结束后未残留临时补上的定位方式与判定中标记",
+    outcome.leftoverPosition === 0 && outcome.pendingMarks === 0,
+    `残留定位标记=${outcome.leftoverPosition} 残留判定中标记=${outcome.pendingMarks}`
   );
 }
 

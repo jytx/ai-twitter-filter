@@ -41,11 +41,24 @@ const TweetDom = (() => {
   // 用 visibility 而非 display，保留布局空间，高度不受影响。
   function markPending(article) {
     article.dataset.aiFilterPending = "true";
+
+    // loading 指示器用绝对定位绘制，需要推文自身是定位祖先。
+    // 推文的定位方式由 X 决定（虚拟列表里常是 absolute），不能由样式覆盖，
+    // 否则会破坏 X 的布局、让指示器定位错乱。仅在推文是 static 时临时补一个
+    // relative，判定结束后立即还原。
+    if (getComputedStyle(article).position === "static") {
+      article.style.setProperty("position", "relative", "important");
+      article.dataset.aiFilterPositionAdded = "true";
+    }
   }
 
-  // 判定结束：撤除判定中标记
+  // 判定结束：撤除判定中标记，并还原临时补上的定位方式
   function clearPending(article) {
     delete article.dataset.aiFilterPending;
+    if (article.dataset.aiFilterPositionAdded) {
+      delete article.dataset.aiFilterPositionAdded;
+      article.style.removeProperty("position");
+    }
   }
 
   // 移除全部横幅与加载动画

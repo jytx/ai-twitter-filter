@@ -148,7 +148,46 @@ article[data-ai-filter-pending="true"] > *:not(.ai-filter-banner) {
 }
 
 /* 判定中的位置提示：底部一条细线。
-   box-shadow: inset 不改变盒模型尺寸，且不受子元素 visibility 影响。 */
+   box-shadow: inset 不改变盒模型尺寸，且不受子元素 visibility 影响。
+
+   注意：这里刻意不写 position。推文的定位方式由 X 自身决定（虚拟列表里
+   往往是 absolute），用样式覆盖会破坏它的布局，导致伪元素定位错乱。
+   定位上下文由 ui.js 的 markPending 按需临时补充。 */
 article[data-ai-filter-pending="true"] {
   box-shadow: inset 0 -2px 0 0 rgba(29, 155, 240, 0.65);
+}
+
+/* 判定中的加载指示器：旋转的圆圈 + 提示文字。
+   一律用绝对定位，不参与流式布局，因此不会改变推文高度。
+   伪元素不是子元素，不会被上面 visibility:hidden 的规则命中，
+   而 visibility 从 article 继承为 visible，所以指示器正常可见。 */
+article[data-ai-filter-pending="true"]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -25px 0 0 -9px;
+  border: 2px solid #38444d;
+  border-top-color: #1d9bf0;
+  border-radius: 50%;
+  animation: ai-filter-spin 0.7s linear infinite;
+}
+
+article[data-ai-filter-pending="true"]::after {
+  content: "Checking tweet…";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  color: #8b98a5;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  white-space: nowrap;
+}
+
+@keyframes ai-filter-spin {
+  to { transform: rotate(360deg); }
 }
