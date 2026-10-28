@@ -49,9 +49,10 @@ class CDP {
 
 const mockHtml = fs.readFileSync(path.join(root, "tests/mock-timeline.html"), "utf8");
 
-// 对照基线取自 feature/focus-mode 分支：那是用户实际在浏览器中运行的版本
-// （build 1.1.1，含专注模式但不含本次滚动请求修复）
-const BASELINE_REF = "feature/focus-mode";
+// 对照基线固定到具体 commit，不用分支名——分支指针会移动，用名字取到的
+// 可能是修复后的代码，对比就失去意义。
+// 111d053 是用户浏览器中实际运行的版本（build 1.1.1，含专注模式但不含本次修复）
+const BASELINE_REF = "111d053";
 
 function gitShow(file) {
   return execFileSync("git", ["show", `${BASELINE_REF}:${file}`], { cwd: root, encoding: "utf8" });
