@@ -37,7 +37,11 @@ const els = {
   testConnection: document.getElementById("testConnection"),
   testResult: document.getElementById("testResult"),
   status: document.getElementById("status"),
+  version: document.getElementById("version"),
 };
+
+// 显示当前版本号：未打包扩展需要手动重载，版本号是确认代码是否更新的唯一依据
+els.version.textContent = `v${chrome.runtime.getManifest().version}`;
 
 // 内置厂商的域名已在 manifest host_permissions 中声明，无需动态授权
 const BUILTIN_ORIGINS = ["https://api.openai.com", "https://openrouter.ai"];

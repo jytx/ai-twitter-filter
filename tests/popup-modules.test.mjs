@@ -83,6 +83,37 @@ console.log("\n[4] popup.html 与 popup.js 的元素 id 对应");
     assert.ok(htmlIds.includes("focusMode"), "缺少 focusMode 勾选框");
     assert.ok(htmlIds.includes("focusModeStatus"), "缺少 focusModeStatus 提示元素");
   });
+
+  test("popup 显示版本号（便于确认浏览器里跑的是最新构建）", () => {
+    assert.ok(htmlIds.includes("version"), "popup.html 缺少版本号元素");
+    assert.ok(
+      /getManifest\(\)\.version/.test(popup),
+      "popup.js 未从 manifest 读取版本号"
+    );
+  });
+}
+
+console.log("\n[6] 版本号标识一致性");
+{
+  const manifest = JSON.parse(read("manifest.json"));
+  const content = read("content.js");
+  const buildMatch = content.match(/build (\d+\.\d+\.\d+)/);
+
+  test("content.js 的构建标记与 manifest 版本号一致", () => {
+    assert.ok(buildMatch, "content.js 中未找到构建标记");
+    assert.equal(
+      buildMatch[1],
+      manifest.version,
+      `构建标记 ${buildMatch[1]} 与 manifest 版本 ${manifest.version} 不一致`
+    );
+  });
+
+  test("版本号为三段式语义化版本", () => {
+    assert.ok(
+      /^\d+\.\d+\.\d+$/.test(manifest.version),
+      `版本号格式非法: ${manifest.version}`
+    );
+  });
 }
 
 console.log("\n[5] manifest 内容脚本清单");

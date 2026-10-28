@@ -36,6 +36,20 @@ h1 {
   color: #1d9bf0;
 }
 
+.header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 版本号：便于确认浏览器里跑的确实是最新构建
+   （未打包扩展需要手动重载，版本号是唯一的确认依据） */
+.version {
+  font-size: 11px;
+  color: #8b98a5;
+  font-variant-numeric: tabular-nums;
+}
+
 .field {
   margin-bottom: 12px;
 }
