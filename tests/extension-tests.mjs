@@ -418,10 +418,10 @@ async function evaluate(cdp, expression) {
 {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const order = manifest.content_scripts[0].js;
-  const expected = ["ui.js", "tweet-store.js", "content.js"];
+  const expected = ["ui.js", "focus.js", "tweet-store.js", "content.js"];
 
   check(
-    "manifest 的 content_scripts 顺序为 ui.js → tweet-store.js → content.js",
+    "manifest 的 content_scripts 顺序为 ui.js → focus.js → tweet-store.js → content.js",
     JSON.stringify(order) === JSON.stringify(expected),
     `实际顺序 ${JSON.stringify(order)}`
   );

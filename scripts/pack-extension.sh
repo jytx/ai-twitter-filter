@@ -18,6 +18,9 @@ FILES=(
   content.js
   ui.js
   tweet-store.js
+  focus.js
+  focus-toggle.js
+  test-connection.js
   providers.js
   popup.html
   popup.js

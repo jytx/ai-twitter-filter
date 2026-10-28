@@ -7,6 +7,69 @@ article[data-ai-filter-processed="true"] {
   align-items: stretch;
 }
 
+/* ---- 专注模式：隐藏左右栏 ----
+   X 用固定尺寸的 flex 列布局（主栏 max-width 600px、左右栏 391/350px）。
+   隐藏部分由 CSS 兜底：即使 JS 尚未定位到元素（页面刚加载），
+   也能先把左右栏收起来。
+   宽度放开由 focus.js 写行内样式完成——X 的祖先链有多层约束，
+   纯 CSS 的 :has() 逐级匹配不可靠，实测无法撑满 */
+
+/* 左栏导航：三栏容器中 main 的前一个兄弟 header */
+html[data-ai-filter-focus="on"] div:has(> main) > header {
+  display: none !important;
+}
+
+/* 右栏推荐：aside 及其外层包裹容器都要隐藏，否则仍会占据 350px 空位 */
+html[data-ai-filter-focus="on"] aside {
+  display: none !important;
+}
+
+html[data-ai-filter-focus="on"] div:has(> aside) {
+  display: none !important;
+}
+
+/* 右下角悬浮切换按钮。
+   X 自带的悬浮按钮固定在右下角，因此本按钮左移避让，二者不重叠 */
+.ai-filter-focus-button {
+  position: fixed;
+  right: 76px;
+  bottom: 20px;
+  z-index: 9999;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(29, 155, 240, 0.92);
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.ai-filter-focus-button:hover {
+  background: #1a8cd8;
+  transform: scale(1.06);
+}
+
+/* 开启状态：改为深色底，提示当前处于专注模式 */
+.ai-filter-focus-button.ai-filter-focus-active {
+  background: rgba(15, 20, 25, 0.92);
+}
+
+.ai-filter-focus-button.ai-filter-focus-active:hover {
+  background: rgba(39, 44, 48, 0.95);
+}
+
+.ai-filter-focus-icon {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
 /* Banner shown when a tweet is hidden：上下两行布局，
    避免理由文字与右侧按钮同行时被挤压折行 */
 .ai-filter-banner {

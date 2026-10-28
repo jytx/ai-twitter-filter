@@ -234,6 +234,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Listen for settings changes and broadcast to content scripts
 chrome.storage.onChanged.addListener((changes, area) => {
+  // 专注模式状态存在 local 中：单独处理并广播给内容脚本
+  // （其余 local 键如 apiKey 不需要广播给内容脚本）
+  if (area === "local") {
+    if (!("focusMode" in changes)) return;
+    broadcastToXTabs({
+      type: "FOCUS_MODE_UPDATED",
+      focusMode: changes.focusMode.newValue === true,
+    });
+    return;
+  }
+
   // filterPrompt 存在 sync 中；apiKey 存在 local 中但无需广播给内容脚本
   if (area !== "sync") return;
 
@@ -244,18 +255,21 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 
   // Broadcast settings update to all x.com tabs
+  const settings = {};
+  for (const [key, change] of Object.entries(changes)) {
+    settings[key] = change.newValue;
+  }
+  broadcastToXTabs({ type: "SETTINGS_UPDATED", changes: settings });
+});
+
+// 向所有 x.com / twitter.com 标签页广播消息
+// 目标页面尚未加载内容脚本时会 reject，这里静默忽略（由内容脚本的 storage 监听兜底）
+function broadcastToXTabs(message) {
   chrome.tabs.query({ url: ["https://x.com/*", "https://twitter.com/*"] }, (tabs) => {
-    const settings = {};
-    for (const [key, change] of Object.entries(changes)) {
-      settings[key] = change.newValue;
-    }
     for (const tab of tabs) {
-      chrome.tabs.sendMessage(tab.id, {
-        type: "SETTINGS_UPDATED",
-        changes: settings,
-      }).catch(() => {
+      chrome.tabs.sendMessage(tab.id, message).catch(() => {
         // Tab might not have content script loaded yet
       });
     }
   });
-});
+}
