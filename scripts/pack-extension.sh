@@ -17,6 +17,7 @@ FILES=(
   background.js
   content.js
   ui.js
+  tweet-store.js
   providers.js
   popup.html
   popup.js

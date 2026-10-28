@@ -15,5 +15,6 @@ check_module popup.js
 check_module providers.js
 node --check content.js
 node --check ui.js
+node --check tweet-store.js
 
 echo "All extension scripts passed syntax check."

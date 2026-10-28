@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Mock X Timeline (virtual list)</title>
+  <style>
+    html, body { margin: 0; padding: 0; }
+    /* 模拟 X 的时间线：窗口滚动 + 虚拟列表（只挂载视口附近的推文） */
+    #spacer { position: relative; width: 640px; margin: 0 auto; }
+    article[data-testid="tweet"] {
+      box-sizing: border-box;
+      border-bottom: 1px solid #ddd;
+      padding: 12px;
+      background: #fff;
+      width: 100%;
+    }
+    .tweet-body { height: 180px; background: #f7f7f7; }
+  </style>
+</head>
+<body>
+  <div id="spacer"></div>
+  <script>
+    // 虚拟列表模型（贴近 X 的实现）：
+    //   1. 只把视口附近的推文挂载到 DOM，远处推文被卸载
+    //   2. 每条推文的高度以实际渲染高度为准，未渲染的用自然高度估算
+    //   3. 滚到底部时补拉新推文
+    //
+    // 关键点：推文被扩展隐藏后高度从 ~205px 塌缩到 ~44px，
+    // 同样的视口需要挂载更多推文才能填满 —— 这正是线上请求暴涨的机制。
+
+    const VIEW_OVERSCAN = 1500;       // 列表预渲染余量（px），X 会保留较大的 DOM 缓冲
+    const LOAD_MORE_THRESHOLD = 800;  // 距底部多少 px 时补拉
+    const BATCH_SIZE = 20;            // 每次补拉条数
+    const NATURAL_HEIGHT = 205;       // 未判定推文的自然高度估算
+
+    const spacer = document.getElementById("spacer");
+    const items = [];   // { id, el, height, top }
+    let nextId = 0;
+    let totalHeight = 0;
+
+    // 供测试读取的统计信息
+    window.__stats = { created: 0, mounted: 0, maxMounted: 0, requests: 0, tweets: 0, exposed: 0, band: 0 };
+    // 已经进入过视口区域的推文（去重计数）
+    const exposedIds = new Set();
+    // 进入过“观察带”的推文（去重计数）：
+    // 扩展用 IntersectionObserver 的 800px rootMargin 触发判定，
+    // 因此推文高度直接决定一次滚动会触发多少条判定。
+    const bandIds = new Set();
+
+    function makeArticle(item) {
+      const article = document.createElement("article");
+      article.setAttribute("data-testid", "tweet");
+      article.innerHTML = `
+        <div class="tweet-body">
+          <div data-testid="User-Name"><a href="#"><span>User ${item.id}</span></a></div>
+          <div data-testid="tweetText">Tweet ${item.id}: sample content</div>
+        </div>
+      `;
+      return article;
+    }
+
+    function loadMore() {
+      for (let i = 0; i < BATCH_SIZE; i++) {
+        items.push({ id: nextId++, el: null, height: NATURAL_HEIGHT, top: 0 });
+      }
+      window.__stats.created = items.length;
+    }
+
+    // 计算每条推文的纵向偏移，并更新已挂载节点的位置
+    function layout() {
+      let offset = 0;
+      for (const it of items) {
+        it.top = offset;
+        offset += it.height;
+        if (it.el) it.el.style.top = it.top + "px";
+      }
+      totalHeight = offset;
+      spacer.style.height = totalHeight + "px";
+    }
+
+    // 找到覆盖纵向位置 y 的推文索引
+    function indexAt(y) {
+      let lo = 0, hi = items.length - 1, ans = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (items[mid].top <= y) { ans = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      return ans;
+    }
+
+    // 挂载视口附近的推文，卸载远处的推文
+    function render() {
+      const scrollTop = window.scrollY;
+      const viewH = window.innerHeight;
+      const start = Math.max(0, scrollTop - VIEW_OVERSCAN);
+      const end = scrollTop + viewH + VIEW_OVERSCAN;
+
+      const first = indexAt(start);
+      let last = first;
+      let acc = items[first] ? items[first].top : 0;
+      while (last < items.length && acc < end) {
+        acc += items[last].height;
+        last++;
+      }
+      if (last <= first) last = first + 1;
+
+      for (const it of items) {
+        if (it.el && (it.top + it.height < start || it.top > end)) {
+          it.el.remove();
+          it.el = null;
+        }
+      }
+
+      for (let i = first; i < last; i++) {
+        const it = items[i];
+        if (!it.el) {
+          it.el = makeArticle(it);
+          it.el.style.position = "absolute";
+          it.el.style.left = "0";
+          it.el.style.right = "0";
+          spacer.appendChild(it.el);
+        }
+      }
+
+      window.__stats.mounted = document.querySelectorAll('article[data-testid="tweet"]').length;
+      if (window.__stats.mounted > window.__stats.maxMounted) {
+        window.__stats.maxMounted = window.__stats.mounted;
+      }
+      // 统计真正进入过视口区域的推文数（去重）：
+      // 这是“用户实际可能看到”的推文规模，扩展的请求量应与之同量级。
+      // 推文被压缩成 44px 时，同样一屏需要挂载数倍推文，该指标会明显放大。
+      for (const it of items) {
+        if (!it.el) continue;
+        if (it.top + it.height > scrollTop && it.top < scrollTop + viewH) {
+          exposedIds.add(it.id);
+        }
+        // 观察带：视口上下各 800px（与扩展的 rootMargin 一致）
+        if (it.top + it.height > scrollTop - 800 && it.top < scrollTop + viewH + 800) {
+          bandIds.add(it.id);
+        }
+      }
+      window.__stats.exposed = exposedIds.size;
+      window.__stats.band = bandIds.size;
+      // 按推文自然高度推算，填满「视口 + 预渲染余量」所需的推文数量。
+      // 判定中的推文若被压缩，实际挂载数会数倍于该值。
+      window.__stats.expectedMounted = Math.ceil(
+        (window.innerHeight + VIEW_OVERSCAN * 2) / NATURAL_HEIGHT
+      );
+    }
+
+    // 以实际渲染高度为准更新推文高度（推文被隐藏后高度会塌缩）
+    function measure() {
+      let changed = false;
+      for (const it of items) {
+        if (!it.el) continue;
+        const h = it.el.getBoundingClientRect().height;
+        if (Math.abs(h - it.height) > 0.5) {
+          it.height = h;
+          changed = true;
+        }
+      }
+      if (changed) {
+        layout();
+        render();
+      }
+    }
+
+    function update() {
+      // 接近底部时补拉新推文
+      if (window.scrollY + window.innerHeight + LOAD_MORE_THRESHOLD > totalHeight) {
+        loadMore();
+      }
+      layout();
+      render();
+      measure();
+    }
+
+    window.addEventListener("scroll", update);
+
+    // 初始内容
+    loadMore();
+    update();
+  </script>
+</body>
+</html>

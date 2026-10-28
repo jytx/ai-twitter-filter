@@ -2,19 +2,8 @@
   let enabled = true;
   // 是否对评论（回复推文）也做 AI 验证；默认关闭，时间线上的回复直接放行
   let filterReplies = false;
-  let debounceTimer = null;
-  const pendingTweets = new Map(); // hash -> { element, text }
-  const processedHashes = new Map(); // hash -> { hide: boolean, reason: string }
 
-  // Simple string hash
-  function hashText(text) {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash + char) | 0;
-    }
-    return hash.toString(36);
-  }
+  // ---- 推文文本与作者提取 ----
 
   function extractTweetText(article) {
     const textEl = article.querySelector('div[data-testid="tweetText"]');
@@ -46,7 +35,72 @@
     return ctx.innerText.includes("@");
   }
 
-  // ---- Tweet processing ----
+  // ---- 判定结果套用 ----
+
+  // 套用判定结果到该文本的全部 DOM 实例，并清理判定中状态。
+  // cache 为 false 时不写入判定缓存：请求失败需要允许后续重新判定。
+  function applyVerdict(hash, hide, reason, cache) {
+    TweetStore.setVerdict(hash, hide, reason, cache);
+
+    const elements = TweetStore.getElements(hash);
+    if (!elements) return;
+
+    for (const element of [...elements]) {
+      // 已被 X 销毁的节点无需处理：节点重建后会重新走完整流程
+      if (!element.isConnected) continue;
+      // 先恢复内容再释放高度占位：顺序反了会让 article 瞬间塌缩，
+      // X 的虚拟列表据此重新计算可视窗口，多拉一批无用的推文
+      if (hide) {
+        TweetDom.applyHidden(element, reason, extractAuthor(element));
+      } else {
+        TweetDom.showChildren(element);
+      }
+      TweetDom.clearPending(element);
+      // 高度占位在内容恢复之后才撤除，全程 article 高度保持稳定
+    }
+
+    // 判定已完成，后续同文本的新实例走判定缓存分支，无需再索引
+    TweetStore.forgetElements(hash);
+  }
+
+  // ---- 批次发送 ----
+
+  async function sendBatch() {
+    const batch = TweetStore.takePendingBatch();
+    if (batch.length === 0) return;
+
+    try {
+      const results = await chrome.runtime.sendMessage({
+        type: "EVALUATE_TWEETS",
+        tweets: batch,
+      });
+
+      // background 未返回结果时按放行兜底，避免推文永远停留在加载状态
+      const verdicts = Array.isArray(results) ? results : [];
+
+      const applied = new Set();
+      for (const verdict of verdicts) {
+        applyVerdict(verdict.id, Boolean(verdict.hide), verdict.reason || "", true);
+        applied.add(verdict.id);
+      }
+
+      // 模型漏答的条目按放行兜底：请求已完成但没拿到判定，
+      // 若不放行推文会一直卡在“Checking”状态
+      for (const item of batch) {
+        if (!applied.has(item.hash)) {
+          applyVerdict(item.hash, false, "", false);
+        }
+      }
+    } catch (err) {
+      console.error("AI Twitter Filter - Error sending batch:", err);
+      // Fail open - show all tweets in this batch
+      for (const item of batch) {
+        applyVerdict(item.hash, false, "", false);
+      }
+    }
+  }
+
+  // ---- 推文处理 ----
 
   // 判断是否为详情页（/<用户>/status/<id>，含 analytics、photo 等变体）：
   // 详情页只做过滤，不做筛选
@@ -67,123 +121,34 @@
     const text = extractTweetText(article);
     if (!text) return;
 
-    const hash = hashText(text);
+    const hash = TweetStore.hashText(text);
     article.dataset.aiFilterProcessed = "true";
     article.dataset.aiFilterHash = hash;
 
-    // If we already have a verdict for this hash, apply immediately
-    if (processedHashes.has(hash)) {
-      const verdict = processedHashes.get(hash);
+    // 已有判定结果：直接套用，不再发起请求
+    const verdict = TweetStore.getVerdict(hash);
+    if (verdict) {
       if (verdict.hide) {
-        applyHidden(article, verdict.reason);
+        TweetDom.applyHidden(article, verdict.reason, extractAuthor(article));
+      } else {
+        TweetDom.showChildren(article);
       }
       return;
     }
 
-    // Hide content and show loader while we wait for AI
-    hideChildren(article);
-    addLoader(article);
-
-    pendingTweets.set(hash, { element: article, text });
-    scheduleBatch();
+    // 判定中：内容隐藏但保留推文原始高度（见 ui.js 的 markPending 说明）
+    TweetDom.markPending(article);
+    TweetStore.trackElement(hash, article);
+    TweetStore.enqueue(hash, text);
   }
 
-  function scheduleBatch() {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(sendBatch, 500);
-  }
-
-  async function sendBatch() {
-    if (pendingTweets.size === 0) return;
-
-    const batch = [];
-    const elements = new Map();
-
-    for (const [hash, data] of pendingTweets) {
-      // 节点已被 X 滚动销毁的条目直接丢弃：判定结果无处应用，
-      // 节点重建时会重新走完整流程，不存在漏判缝隙
-      if (!data.element.isConnected) continue;
-      batch.push({ hash, text: data.text });
-      elements.set(hash, data.element);
-    }
-    pendingTweets.clear();
-
-    try {
-      const results = await chrome.runtime.sendMessage({
-        type: "EVALUATE_TWEETS",
-        tweets: batch,
-      });
-
-      if (!results) return;
-
-      for (const verdict of results) {
-        processedHashes.set(verdict.id, { hide: verdict.hide, reason: verdict.reason || "" });
-        applyVerdictToAll(verdict.id, verdict.hide, verdict.reason || "");
-      }
-    } catch (err) {
-      console.error("AI Twitter Filter - Error sending batch:", err);
-      // Fail open - show all tweets in this batch
-      for (const [hash] of elements) {
-        applyVerdictToAll(hash, false);
-      }
-    }
-  }
-
-  function applyVerdictToAll(hash, hide, reason) {
-    const articles = document.querySelectorAll(
-      `article[data-testid="tweet"][data-ai-filter-hash="${hash}"]`
-    );
-    for (const article of articles) {
-      removeLoader(article);
-      if (hide) {
-        applyHidden(article, reason);
-      } else {
-        showChildren(article);
-      }
-    }
-  }
-
-  function applyHidden(article, reason) {
-    article.classList.add("ai-filter-hidden");
-    hideChildren(article);
-    if (!article.querySelector(".ai-filter-banner")) {
-      const author = extractAuthor(article);
-      article.prepend(createBanner(author, reason));
-    }
-  }
-
-  function unhideAll() {
-    // Remove banners and loaders
-    document.querySelectorAll(".ai-filter-banner, .ai-filter-loader").forEach((el) => el.remove());
-    // Restore children visibility
-    document.querySelectorAll(".ai-filter-hidden, [data-ai-filter-processed]").forEach((article) => {
-      article.classList.remove("ai-filter-hidden");
-      showChildren(article);
-    });
-  }
-
-  // 仅重置 DOM 侧状态：移除横幅/加载动画并恢复显示，清掉节点上的处理标记
-  // （路由切换时使用：X 会重建推文 DOM，但判定结果可复用）
-  function resetDomState() {
-    unhideAll();
-    document.querySelectorAll("[data-ai-filter-processed]").forEach((el) => {
-      delete el.dataset.aiFilterProcessed;
-      delete el.dataset.aiFilterHash;
-    });
-  }
-
-  // 完整重置：DOM 状态 + 判定缓存（仅设置变化需要重新判定时使用）
-  function resetAll() {
-    resetDomState();
-    processedHashes.clear();
-    pendingTweets.clear();
-  }
-
-  // ---- DOM observer ----
+  // ---- DOM 观察 ----
 
   // 视口观察：推文接近视口（提前 800px）才发起判定。
   // X 会预渲染视口外较远的节点，立即判定会让快速滚动产生大量
   // 用户并未停留观看的请求；接近视口再处理，请求集中在真实可见内容上。
+  // 判定期间推文保持原始高度（不做塌缩），800px 余量覆盖的推文数量
+  // 始终接近真实可见数量，不会因高度塌缩而被放大。
   // 已判定的节点由 processTweet 的 dataset 守卫自然跳过
   const viewportObserver = new IntersectionObserver(
     (entries) => {
@@ -224,9 +189,30 @@
 
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // Process tweets already on the page
-  if (!isDetailPage()) {
-    document.querySelectorAll('article[data-testid="tweet"]').forEach(queueTweet);
+  // ---- 状态重置 ----
+
+  // 仅重置 DOM 侧状态：移除横幅/加载动画并恢复显示，清掉节点上的处理标记
+  // （路由切换时使用：X 会重建推文 DOM，但判定结果可复用）
+  function resetDomState() {
+    TweetDom.removeOverlays();
+    TweetDom.showAll();
+    document.querySelectorAll("[data-ai-filter-processed]").forEach((el) => {
+      delete el.dataset.aiFilterProcessed;
+      delete el.dataset.aiFilterHash;
+    });
+  }
+
+  // 完整重置：DOM 状态 + 判定缓存（仅设置变化需要重新判定时使用）
+  function resetAll() {
+    resetDomState();
+    TweetStore.reset();
+  }
+
+  // 重新扫描当前页面的全部推文
+  function rescanPage() {
+    document
+      .querySelectorAll('article[data-testid="tweet"]')
+      .forEach(queueTweet);
   }
 
   // ---- SPA 路由检测 ----
@@ -236,13 +222,11 @@
 
   function handleRouteChange() {
     // 进出详情页时 X 会重建推文 DOM，旧节点标记随节点销毁；
-    // 仅重置 DOM 状态并保留判定缓存（processedHashes）——
-    // 返回列表后同批推文直接应用已有判定，不再重走 Checking 动画与防抖等待
+    // 仅重置 DOM 状态并保留判定缓存——
+    // 返回列表后同批推文直接应用已有判定，不再重走 Checking 动画与节流等待
     resetDomState();
     if (!isDetailPage()) {
-      document
-        .querySelectorAll('article[data-testid="tweet"]')
-        .forEach(queueTweet);
+      rescanPage();
     }
   }
 
@@ -255,34 +239,29 @@
   // ---- Message listener ----
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === "SETTINGS_UPDATED") {
-      if ("enabled" in message.changes) {
-        enabled = message.changes.enabled;
-        if (!enabled) {
-          unhideAll();
-        } else {
-          resetAll();
-          document
-            .querySelectorAll('article[data-testid="tweet"]')
-            .forEach(queueTweet);
-        }
-      }
+    if (message.type !== "SETTINGS_UPDATED") return;
 
-      if ("filterPrompt" in message.changes) {
+    if ("enabled" in message.changes) {
+      enabled = message.changes.enabled;
+      if (enabled) {
         resetAll();
-        document
-          .querySelectorAll('article[data-testid="tweet"]')
-          .forEach(queueTweet);
+        rescanPage();
+      } else {
+        // 关闭过滤：只恢复显示，保留判定缓存，重新开启时无需重复请求
+        resetDomState();
       }
+    }
 
-      // 回复验证开关变化时，重置所有标记并重新扫描当前页面
-      if ("filterReplies" in message.changes) {
-        filterReplies = message.changes.filterReplies === true;
-        resetAll();
-        document
-          .querySelectorAll('article[data-testid="tweet"]')
-          .forEach(queueTweet);
-      }
+    if ("filterPrompt" in message.changes) {
+      resetAll();
+      rescanPage();
+    }
+
+    // 回复验证开关变化时，重置所有标记并重新扫描当前页面
+    if ("filterReplies" in message.changes) {
+      filterReplies = message.changes.filterReplies === true;
+      resetAll();
+      rescanPage();
     }
   });
 
@@ -294,6 +273,14 @@
     }
   });
 
+  // 批次就绪回调：交给状态层调度，content.js 负责发消息与套用结果
+  TweetStore.setBatchListener(sendBatch);
+
+  // Process tweets already on the page
+  if (!isDetailPage()) {
+    rescanPage();
+  }
+
   // 构建标记：用于在控制台区分新旧代码（排查扩展未重载问题）
-  console.log("AI Twitter Filter - Content script loaded [build 1.0.1-b1]");
+  console.log("AI Twitter Filter - Content script loaded [build 1.0.1-b2]");
 })();

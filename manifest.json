@@ -20,7 +20,7 @@
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],
-      "js": ["ui.js", "content.js"],
+      "js": ["ui.js", "tweet-store.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }

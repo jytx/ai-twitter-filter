@@ -71,11 +71,15 @@ article[data-ai-filter-processed="true"] {
   background: rgba(29, 155, 240, 0.1);
 }
 
-/* Loading spinner shown while tweet is being evaluated */
+/* Loading spinner shown while tweet is being evaluated.
+   box-sizing: border-box 保证 JS 设置的 min-height 就是推文占位的最终高度，
+   不会因内边距与边框多出几像素（多出的高度会让虚拟列表多挂载推文）。
+   align-items: center 让提示在占位区域内垂直居中 */
 .ai-filter-loader {
   display: flex !important;
   align-items: center;
   gap: 10px;
+  box-sizing: border-box;
   padding: 14px 16px;
   color: #8b98a5;
   font-size: 13px;
