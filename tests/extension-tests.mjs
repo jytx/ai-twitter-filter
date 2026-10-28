@@ -496,6 +496,69 @@ async function evaluate(cdp, expression) {
   );
 }
 
+// ============ 用例 8：DOM 重建后的新实例不重复显示判定中状态 ============
+//
+// X 的虚拟列表会回收并重建推文节点。重建出的新实例在判定结果回来之前
+// 拿不到已有判定，若照常显示判定中标记，同一条推文就会反复出现
+// "Checking" 状态——表现为下面几条已渲染好、上面那条还在转圈。
+{
+  const outcome = await runScenario({
+    name: "重建实例不重复标记",
+    setup: async (cdp) => {
+      await evaluate(cdp, `window.__reply = null;`);
+    },
+    scenario: async (cdp) => {
+      await sleep(1200);
+      const before = await evaluate(
+        cdp,
+        `document.querySelectorAll('article[data-ai-filter-pending="true"]').length`
+      );
+
+      // 模拟 X 重建 DOM：克隆一条推文节点（同文本），替换掉原节点
+      await evaluate(
+        cdp,
+        `(() => {
+          const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
+          const src = arts[0];
+          if (!src) return;
+          const clone = src.cloneNode(true);
+          // 清掉克隆上的处理标记，模拟 X 重建出的全新节点
+          delete clone.dataset.aiFilterProcessed;
+          delete clone.dataset.aiFilterHash;
+          delete clone.dataset.aiFilterPending;
+          src.replaceWith(clone);
+        })()`
+      );
+      await sleep(1000);
+
+      const after = await evaluate(
+        cdp,
+        `(() => {
+          const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
+          return {
+            pendingCount: arts.filter(a => a.dataset.aiFilterPending).length,
+            // 同一 hash 的实例数（用于确认克隆确实进来了）
+            hashCounts: arts.reduce((acc, a) => {
+              const h = a.dataset.aiFilterHash || 'none';
+              acc[h] = (acc[h] || 0) + 1;
+              return acc;
+            }, {}),
+          };
+        })()`
+      );
+
+      return { before, after };
+    },
+  });
+
+  const dupHashes = Object.values(outcome.after.hashCounts).filter((n) => n > 1);
+  check(
+    "DOM 重建后的同文本实例未新增判定中标记（不重复转圈）",
+    dupHashes.length === 0 || outcome.after.pendingCount <= outcome.before + 1,
+    `判定中标记 ${outcome.before} → ${outcome.after.pendingCount}（重复 hash 的实例数=${JSON.stringify(dupHashes)}）`
+  );
+}
+
 // ============ 汇总 ============
 console.log("\n================ 测试汇总 ================");
 console.log(`总计 ${results.length} 项，通过 ${results.length - failures} 项，失败 ${failures} 项`);

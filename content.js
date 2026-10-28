@@ -136,7 +136,18 @@
       return;
     }
 
-    // 判定中：内容隐藏但保留推文原始高度（见 ui.js 的 markPending 说明）
+    // 同一文本正在判定中：只登记实例，等结果回来统一套用。
+    //
+    // X 的虚拟列表会回收并重建 DOM 节点，重建出的新实例拿不到已有判定
+    // （结果还没回来），若照常显示加载占位，同一条推文就会反复出现
+    // "Checking"状态，而判定结果其实马上就到。
+    // 表现为时间线上"下面几条已经渲染好、上面那条还在转圈"。
+    if (TweetStore.isPending(hash)) {
+      TweetStore.trackElement(hash, article);
+      return;
+    }
+
+    // 判定中：只切标记，不改动推文尺寸（见 ui.js 的 markPending 说明）
     TweetDom.markPending(article);
     TweetStore.trackElement(hash, article);
     TweetStore.enqueue(hash, text);

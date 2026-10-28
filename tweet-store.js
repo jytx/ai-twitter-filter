@@ -68,6 +68,11 @@ const TweetStore = (() => {
     return elements.get(hash);
   }
 
+  // 该文本是否正在判定中（已入队但结果未回）
+  function isPending(hash) {
+    return pending.has(hash);
+  }
+
   // 判定完成后释放实例索引：后续同文本的新实例走判定缓存分支，无需再索引
   function forgetElements(hash) {
     elements.delete(hash);
@@ -162,6 +167,7 @@ const TweetStore = (() => {
     setVerdict,
     trackElement,
     getElements,
+    isPending,
     forgetElements,
     hasLiveElement,
     enqueue,
