@@ -168,10 +168,14 @@ async function evaluate(cdp, expression) {
   return r.result.value;
 }
 
-// ============ 用例 1：判定期间推文保持原始高度 ============
+// ============ 用例 1：判定期间不改动推文尺寸 ============
+//
+// 判定中的推文必须保持内容可见、尺寸不变。
+// 尺寸一旦变化，X 会判定页面仍在加载而启用渐进渲染，
+// 表现为推文分批冒出、需要滚动才继续加载。
 {
   const outcome = await runScenario({
-    name: "高度保持",
+    name: "判定期间不改尺寸",
     setup: async (cdp) => {
       // 模拟慢速 API：让判定一直处于 pending 状态
       await evaluate(cdp, `window.__reply = null;`);
@@ -183,10 +187,16 @@ async function evaluate(cdp, expression) {
         `(() => {
           const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
           const pending = arts.filter(a => a.dataset.aiFilterPending);
+          // 判定中的推文里，有多少个子元素被隐藏了
+          const hiddenChildren = pending.map(a =>
+            [...a.children].filter(c => c.style.display === 'none').length
+          );
           return {
             total: arts.length,
             pending: pending.length,
             pendingHeights: pending.map(a => Math.round(a.getBoundingClientRect().height)),
+            hiddenChildren,
+            loaders: document.querySelectorAll('.ai-filter-loader').length,
             stats: window.__stats,
           };
         })()`
@@ -198,6 +208,49 @@ async function evaluate(cdp, expression) {
     "判定中的推文保持原始高度（未被压缩成 44px）",
     outcome.pending > 0 && outcome.pendingHeights.every((h) => h >= 150),
     `pending=${outcome.pending} heights=${JSON.stringify(outcome.pendingHeights.slice(0, 5))}`
+  );
+  check(
+    "判定中的推文内容未被隐藏（无 display:none 的子元素）",
+    outcome.hiddenChildren.every((n) => n === 0),
+    `被隐藏的子元素数=${JSON.stringify(outcome.hiddenChildren)}`
+  );
+  check(
+    "判定中不再插入加载动画占位（避免改变推文尺寸）",
+    outcome.loaders === 0,
+    `加载动画数量=${outcome.loaders}`
+  );
+}
+
+// ============ 用例 1b：判定期间不触发强制同步布局 ============
+//
+// 读布局（getBoundingClientRect）与改样式交替出现会造成 layout thrashing，
+// 连续处理一批推文时主线程被占满，X 的渲染被迫分片。
+{
+  const outcome = await runScenario({
+    name: "无强制布局",
+    setup: async (cdp) => {
+      await evaluate(cdp, `window.__reply = null;`);
+    },
+    scenario: async (cdp) => {
+      await sleep(1200);
+      const before = await evaluate(cdp, `window.__stats.extReflows`);
+
+      // 滚动一段距离，触发一批新推文进入观察带
+      for (let i = 0; i < 8; i++) {
+        await evaluate(cdp, `window.scrollBy(0, 500);`);
+        await sleep(150);
+      }
+      await sleep(1000);
+
+      const after = await evaluate(cdp, `window.__stats.extReflows`);
+      return { before, after };
+    },
+  });
+
+  check(
+    "判定过程中扩展未发起强制同步布局（避免 layout thrashing）",
+    outcome.after - outcome.before <= 2,
+    `扩展强制布局次数 ${outcome.before} → ${outcome.after}（新增 ${outcome.after - outcome.before}）`
   );
 }
 

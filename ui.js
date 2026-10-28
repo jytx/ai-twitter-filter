@@ -5,10 +5,10 @@
 // 不涉及状态管理与消息通信。
 
 const TweetDom = (() => {
-  // 隐藏推文内容：横幅与加载动画始终保持可见
+  // 隐藏推文内容：折叠横幅始终保持可见
   function hideChildren(article) {
     for (const child of article.children) {
-      if (isOverlay(child)) continue;
+      if (isBanner(child)) continue;
       child.style.setProperty("display", "none", "important");
     }
   }
@@ -16,67 +16,32 @@ const TweetDom = (() => {
   // 恢复推文内容可见
   function showChildren(article) {
     for (const child of article.children) {
-      if (isOverlay(child)) continue;
+      if (isBanner(child)) continue;
       child.style.removeProperty("display");
     }
   }
 
-  // 横幅与加载动画是我们插入的覆盖层，不参与内容的隐藏/恢复
-  function isOverlay(child) {
-    return (
-      child.classList.contains("ai-filter-banner") ||
-      child.classList.contains("ai-filter-loader")
-    );
+  // 折叠横幅是我们插入的，不参与内容的隐藏/恢复
+  function isBanner(child) {
+    return child.classList.contains("ai-filter-banner");
   }
 
-  function addLoader(article) {
-    if (article.querySelector(".ai-filter-loader")) return;
-    const loader = document.createElement("div");
-    loader.className = "ai-filter-loader";
-    loader.innerHTML = `
-      <div class="ai-filter-spinner"></div>
-      <span>Checking tweet...</span>
-    `;
-    article.prepend(loader);
-  }
-
-  function removeLoader(article) {
-    const loader = article.querySelector(".ai-filter-loader");
-    if (loader) loader.remove();
-  }
-
-  // 判定中的占位处理：隐藏推文内容，但用加载动画占住推文原本的空间。
+  // 判定中的标记：只切换标记，不隐藏内容、不改动任何盒模型尺寸。
   //
-  // 为什么必须保留高度：推文内容隐藏后 article 只剩加载动画（约 44px），
-  // 整条时间线的高度随之塌缩。X 的时间线是虚拟列表，会按当前高度重新
-  // 计算可视窗口并补拉更多推文，导致判定期间滚动页面会触发大量无效请求，
-  // 而用户实际看到的内容并没有增加。
-  //
-  // 高度占在加载动画上（min-height）而不是 article 上：加载动画是判定期间
-  // article 里唯一可见的子元素，由它撑起高度，article 总高度即与判定前一致；
-  // 同时加载动画铺满整块空间，"Checking"提示居中显示，不会出现大片空白。
+  // 为什么判定期间绝不能碰尺寸：
+  //   1. 尺寸一旦变化，X 会认为页面仍在加载而启用渐进渲染，
+  //      表现为推文分批冒出、需要滚动才继续加载
+  //   2. 测量高度（getBoundingClientRect）与改样式交替进行会造成
+  //      layout thrashing——每次读布局都强制浏览器同步重排，
+  //      连续处理一批推文时主线程被占满，X 的渲染同样被迫分片
+  // 因此判定期间只加一个标记，视觉提示交给 CSS 的透明度实现（不占布局）。
   function markPending(article) {
-    if (article.dataset.aiFilterPending) return;
-
-    // 在隐藏内容之前测量原始高度
-    const originalHeight = Math.ceil(article.getBoundingClientRect().height);
-
-    hideChildren(article);
-    addLoader(article);
-
-    // 让加载动画撑起原始高度，article 总高度因此与判定前一致
-    const loader = article.querySelector(".ai-filter-loader");
-    if (loader && originalHeight > 0) {
-      loader.style.setProperty("min-height", `${originalHeight}px`, "important");
-    }
     article.dataset.aiFilterPending = "true";
   }
 
-  // 判定结束：移除加载动画与高度占位，article 回到自然高度
+  // 判定结束：撤除判定中标记
   function clearPending(article) {
-    if (!article.dataset.aiFilterPending) return;
     delete article.dataset.aiFilterPending;
-    removeLoader(article);
   }
 
   // 移除全部横幅与加载动画

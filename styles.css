@@ -134,31 +134,12 @@ html[data-ai-filter-focus="on"] div:has(> aside) {
   background: rgba(29, 155, 240, 0.1);
 }
 
-/* Loading spinner shown while tweet is being evaluated.
-   box-sizing: border-box 保证 JS 设置的 min-height 就是推文占位的最终高度，
-   不会因内边距与边框多出几像素（多出的高度会让虚拟列表多挂载推文）。
-   align-items: center 让提示在占位区域内垂直居中 */
-.ai-filter-loader {
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  box-sizing: border-box;
-  padding: 14px 16px;
-  color: #8b98a5;
-  font-size: 13px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  border-bottom: 1px solid rgb(47, 51, 54);
-}
-
-.ai-filter-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #38444d;
-  border-top-color: #1d9bf0;
-  border-radius: 50%;
-  animation: ai-filter-spin 0.6s linear infinite;
-}
-
-@keyframes ai-filter-spin {
-  to { transform: rotate(360deg); }
+/* 判定中的推文：只用不透明度表达“正在检查”。
+   刻意不引入任何会改变盒模型尺寸的样式（不隐藏内容、不加占位、不设 min-height）：
+   判定期间一旦改变推文高度，X 会判定页面仍在加载而启用渐进渲染，
+   表现为推文分批冒出、需要滚动才继续加载。
+   opacity 与 transition 均不影响布局，可安全使用。 */
+article[data-ai-filter-pending="true"] {
+  opacity: 0.55;
+  transition: opacity 0.15s ease-out;
 }

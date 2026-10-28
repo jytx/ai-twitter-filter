@@ -124,11 +124,18 @@ const CHROME_MOCK = `
   };
 `;
 
-// 测量判定中推文的高度：修复前的代码没有 data-ai-filter-pending 标记，
-// 改用「存在加载动画」来识别判定中的推文（两个版本都有 .ai-filter-loader）
+// 测量判定中推文的高度：两版的"判定中"标识不同，需同时识别
+//   修复前：插入 .ai-filter-loader 占位动画
+//   修复后：只加 data-ai-filter-pending 标记，不改推文尺寸
 const PENDING_HEIGHT_EXPR = `
-  [...document.querySelectorAll('.ai-filter-loader')]
-    .map(l => Math.round(l.closest('article')?.getBoundingClientRect().height ?? 0))
+  (() => {
+    const nodes = [
+      ...[...document.querySelectorAll('.ai-filter-loader')].map((l) => l.closest('article')),
+      ...[...document.querySelectorAll('article[data-ai-filter-pending="true"]')],
+    ];
+    return [...new Set(nodes.filter(Boolean))]
+      .map((a) => Math.round(a.getBoundingClientRect().height));
+  })()
 `;
 
 async function measure(variantKey) {

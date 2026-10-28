@@ -147,8 +147,8 @@
   // 视口观察：推文接近视口（提前 800px）才发起判定。
   // X 会预渲染视口外较远的节点，立即判定会让快速滚动产生大量
   // 用户并未停留观看的请求；接近视口再处理，请求集中在真实可见内容上。
-  // 判定期间推文保持原始高度（不做塌缩），800px 余量覆盖的推文数量
-  // 始终接近真实可见数量，不会因高度塌缩而被放大。
+  // 判定期间不改推文尺寸（见 ui.js 的 markPending 说明），800px 余量覆盖的
+  // 推文数量始终接近真实可见数量，不会因高度塌缩而被放大。
   // 已判定的节点由 processTweet 的 dataset 守卫自然跳过
   const viewportObserver = new IntersectionObserver(
     (entries) => {
@@ -166,6 +166,13 @@
     viewportObserver.observe(article);
   }
 
+  // DOM 观察：捕获新插入的推文节点。
+  //
+  // X 渲染一条推文会新增几十个元素节点，本回调对每个元素节点都会执行一次
+  // querySelectorAll，累积开销可观——主线程被占满时 X 会启用渐进渲染，
+  // 表现为推文分批冒出。因此这里做两处优化：
+  //   1. 节点自身就是推文时直接入队，不再遍历其子树（推文内不会嵌套推文）
+  //   2. 用 querySelector 先做存在性判断，命中即停，不遍历完整个子树
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
@@ -173,15 +180,15 @@
 
         if (node.matches?.('article[data-testid="tweet"]')) {
           queueTweet(node);
+          continue;
         }
 
-        const articles = node.querySelectorAll?.(
-          'article[data-testid="tweet"]'
-        );
-        if (articles) {
-          for (const article of articles) {
-            queueTweet(article);
-          }
+        // 子树里含推文时才展开，避免对每个元素节点都做完整遍历
+        if (!node.querySelector?.('article[data-testid="tweet"]')) continue;
+
+        const articles = node.querySelectorAll('article[data-testid="tweet"]');
+        for (const article of articles) {
+          queueTweet(article);
         }
       }
     }

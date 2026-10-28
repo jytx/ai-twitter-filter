@@ -39,13 +39,30 @@
     let totalHeight = 0;
 
     // 供测试读取的统计信息
-    window.__stats = { created: 0, mounted: 0, maxMounted: 0, requests: 0, tweets: 0, exposed: 0, band: 0 };
+    window.__stats = { created: 0, mounted: 0, maxMounted: 0, requests: 0, tweets: 0, exposed: 0, band: 0, extReflows: 0 };
     // 已经进入过视口区域的推文（去重计数）
     const exposedIds = new Set();
     // 进入过“观察带”的推文（去重计数）：
     // 扩展用 IntersectionObserver 的 800px rootMargin 触发判定，
     // 因此推文高度直接决定一次滚动会触发多少条判定。
     const bandIds = new Set();
+
+    // 统计扩展发起的强制同步布局（getBoundingClientRect）次数。
+    // 扩展读布局会强制浏览器同步重排；若与改样式交替出现即构成 layout thrashing，
+    // 主线程被占满时 X 会启用渐进渲染（推文分批冒出）。
+    // 用调用栈区分扩展与虚拟列表自身：虚拟列表的调用栈含 measure/update/render。
+    (() => {
+      const original = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = function () {
+        const stack = new Error().stack || "";
+        const isVirtualList = /measure|update|render|layout/.test(stack);
+        const isExtension = /markPending|processTweet|applyVerdict|applyHidden|clearPending/.test(stack);
+        if (isExtension && !isVirtualList) {
+          window.__stats.extReflows += 1;
+        }
+        return original.call(this);
+      };
+    })();
 
     function makeArticle(item) {
       const article = document.createElement("article");
