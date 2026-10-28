@@ -80,6 +80,7 @@ const mockHtml = fs.readFileSync(path.join(root, "tests/mock-timeline.html"), "u
 const uiJs = fs.readFileSync(path.join(root, "ui.js"), "utf8");
 const storeJs = fs.readFileSync(path.join(root, "tweet-store.js"), "utf8");
 const contentJs = fs.readFileSync(path.join(root, "content.js"), "utf8");
+const stylesCss = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 
 async function runScenario({ name, setup, scenario }) {
   // 新建标签页
@@ -139,6 +140,16 @@ async function runScenario({ name, setup, scenario }) {
       `,
     });
 
+    // 注入扩展样式：判定中推文的隐藏与提示全靠 CSS 实现，
+    // 不加载样式的话相关规则一条都不会生效，断言会全部失效
+    await cdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const style = document.createElement("style");
+        style.textContent = ${JSON.stringify(stylesCss)};
+        document.head.appendChild(style);
+      })()`,
+    });
+
     // 注入扩展脚本（ui.js 定义 TweetDom，tweet-store.js 定义 TweetStore，content.js 串联）
     for (const src of [uiJs, storeJs, contentJs]) {
       const r = await cdp.send("Runtime.evaluate", { expression: src });
@@ -191,11 +202,19 @@ async function evaluate(cdp, expression) {
           const hiddenChildren = pending.map(a =>
             [...a.children].filter(c => c.style.display === 'none').length
           );
+          // 判定中的内容是否真的不可见（visibility:hidden，不占布局空间）
+          const visibilityOfPending = pending.map(a => {
+            const child = [...a.children].find(
+              (c) => !c.classList.contains("ai-filter-banner")
+            );
+            return child ? getComputedStyle(child).visibility : "(无子元素)";
+          });
           return {
             total: arts.length,
             pending: pending.length,
             pendingHeights: pending.map(a => Math.round(a.getBoundingClientRect().height)),
             hiddenChildren,
+            visibilityOfPending,
             loaders: document.querySelectorAll('.ai-filter-loader').length,
             stats: window.__stats,
           };
@@ -210,7 +229,12 @@ async function evaluate(cdp, expression) {
     `pending=${outcome.pending} heights=${JSON.stringify(outcome.pendingHeights.slice(0, 5))}`
   );
   check(
-    "判定中的推文内容未被隐藏（无 display:none 的子元素）",
+    "判定中的推文内容完全不可见（不能先让用户读到未过滤内容）",
+    outcome.visibilityOfPending.every((v) => v === "hidden"),
+    `内容可见性=${JSON.stringify(outcome.visibilityOfPending.slice(0, 6))}`
+  );
+  check(
+    "判定中的推文未被 display:none 移除（保留布局空间，高度不变）",
     outcome.hiddenChildren.every((n) => n === 0),
     `被隐藏的子元素数=${JSON.stringify(outcome.hiddenChildren)}`
   );

@@ -26,7 +26,7 @@ const TweetDom = (() => {
     return child.classList.contains("ai-filter-banner");
   }
 
-  // 判定中的标记：只切换标记，不隐藏内容、不改动任何盒模型尺寸。
+  // 判定中的标记：只切换标记，内容隐藏与视觉提示都交给 CSS 完成。
   //
   // 为什么判定期间绝不能碰尺寸：
   //   1. 尺寸一旦变化，X 会认为页面仍在加载而启用渐进渲染，
@@ -34,7 +34,11 @@ const TweetDom = (() => {
   //   2. 测量高度（getBoundingClientRect）与改样式交替进行会造成
   //      layout thrashing——每次读布局都强制浏览器同步重排，
   //      连续处理一批推文时主线程被占满，X 的渲染同样被迫分片
-  // 因此判定期间只加一个标记，视觉提示交给 CSS 的透明度实现（不占布局）。
+  //
+  // 判定期间内容必须完全不可见：装插件的意义就是不让未过滤的内容出现，
+  // 若只是变淡或加遮罩，用户仍会先读到内容再被折叠，筛选就失去了意义。
+  // 具体隐藏方式见 styles.css 的 data-ai-filter-pending 规则：
+  // 用 visibility 而非 display，保留布局空间，高度不受影响。
   function markPending(article) {
     article.dataset.aiFilterPending = "true";
   }

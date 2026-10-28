@@ -143,6 +143,12 @@ async function measure(variantKey) {
   const { cdp, targetId } = await openPage();
   try {
     await evaluate(cdp, CHROME_MOCK);
+    // 注入当前版本的样式，保证两侧的渲染条件一致
+    await evaluate(cdp, `(() => {
+      const style = document.createElement("style");
+      style.textContent = ${JSON.stringify(fs.readFileSync(path.join(root, "styles.css"), "utf8"))};
+      document.head.appendChild(style);
+    })()`);
     for (const src of variant.scripts()) {
       const r = await cdp.send("Runtime.evaluate", { expression: src });
       if (r.exceptionDetails) throw new Error(`脚本注入失败: ${JSON.stringify(r.exceptionDetails)}`);
