@@ -155,11 +155,15 @@
 
   // ---- DOM 观察 ----
 
-  // 视口观察：推文接近视口（提前 800px）才发起判定。
-  // X 会预渲染视口外较远的节点，立即判定会让快速滚动产生大量
-  // 用户并未停留观看的请求；接近视口再处理，请求集中在真实可见内容上。
-  // 判定期间不改推文尺寸（见 ui.js 的 markPending 说明），800px 余量覆盖的
-  // 推文数量始终接近真实可见数量，不会因高度塌缩而被放大。
+  // 视口观察：推文接近视口（提前 1500px）才发起判定。
+  //
+  // 提前量决定用户"翻到时还要等多久"：余量越大，判定在推文进入视口前
+  // 就开始，抵达时通常已有结果。800px 约等于一秒的滚动距离，快速滚动时
+  // 判定总是落后于视线，用户每翻一处都得停下来等。
+  //
+  // 余量放大不会导致请求量失控：请求量正比于观察带内的推文数，
+  // 而判定期间推文保持原始高度（见 ui.js 的 markPending 说明），
+  // 带内推文数量与真实可见数量保持同一量级，不会成倍放大。
   // 已判定的节点由 processTweet 的 dataset 守卫自然跳过
   const viewportObserver = new IntersectionObserver(
     (entries) => {
@@ -169,7 +173,7 @@
         processTweet(entry.target);
       }
     },
-    { rootMargin: "800px 0px" }
+    { rootMargin: "1500px 0px" }
   );
 
   // 统一入口：新出现的推文先观察视口，接近可见时才判定
@@ -300,5 +304,5 @@
   }
 
   // 构建标记：用于在控制台区分新旧代码（排查扩展未重载问题）
-  console.log("AI Twitter Filter - Content script loaded [build 1.2.1]");
+  console.log("AI Twitter Filter - Content script loaded [build 1.3.0]");
 })();

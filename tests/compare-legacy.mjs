@@ -49,6 +49,11 @@ class CDP {
 
 const mockHtml = fs.readFileSync(path.join(root, "tests/mock-timeline.html"), "utf8");
 
+// 从 content.js 实际解析观察余量，避免与实现脱节
+const currentContentJs = fs.readFileSync(path.join(root, "content.js"), "utf8");
+const rootMarginMatch = currentContentJs.match(/rootMargin:\s*"(\d+)px"/);
+const rootMargin = rootMarginMatch ? Number(rootMarginMatch[1]) : 1500;
+
 // 对照基线固定到具体 commit，不用分支名——分支指针会移动，用名字取到的
 // 可能是修复后的代码，对比就失去意义。
 // 111d053 是用户浏览器中实际运行的版本（build 1.1.1，含专注模式但不含本次修复）
@@ -143,6 +148,8 @@ async function measure(variantKey) {
   const { cdp, targetId } = await openPage();
   try {
     await evaluate(cdp, CHROME_MOCK);
+    // 注入观察余量：与扩展的 IntersectionObserver 配置保持一致
+    await evaluate(cdp, `window.__rootMargin = ${rootMargin};`);
     // 注入当前版本的样式，保证两侧的渲染条件一致
     await evaluate(cdp, `(() => {
       const style = document.createElement("style");
@@ -225,7 +232,7 @@ for (const key of Object.keys(l)) {
   console.log(key.padEnd(24), String(l[key]).padEnd(14), String(f[key]));
 }
 console.log("-".repeat(62));
-console.log("\n说明：观察带 = 视口上下各 800px，与扩展 IntersectionObserver 的 rootMargin 一致，");
+console.log(`\n说明：观察带 = 视口上下各 ${rootMargin}px，与扩展 IntersectionObserver 的 rootMargin 一致，`);
 console.log("      即扩展实际会触发判定的范围。推文被压缩时，同样距离内能进入观察带的");
 console.log("      推文数暴增，判定请求随之暴增 —— 这就是线上“滚了很多次、数据没增加”的成因。");
 

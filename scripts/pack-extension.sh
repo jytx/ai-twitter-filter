@@ -22,6 +22,7 @@ FILES=(
   focus-toggle.js
   test-connection.js
   providers.js
+  api-scheduler.js
   popup.html
   popup.js
   popup.css

@@ -13,6 +13,7 @@ check_module() {
 check_module background.js
 check_module popup.js
 check_module providers.js
+check_module api-scheduler.js
 check_module focus-toggle.js
 check_module test-connection.js
 node --check content.js
@@ -25,6 +26,9 @@ node tests/focus.test.mjs
 
 # 模块完整性检查：验证 popup 拆分后的导入导出与元素对应关系
 node tests/popup-modules.test.mjs
+
+# 并发调度测试：验证 API 调用的并发上限、发起间隔与失败隔离
+node tests/background-concurrency.test.mjs
 
 # 浏览器行为测试：无头 Chrome 加载真实扩展代码，验证判定与滚动行为
 bash scripts/run-extension-tests.sh

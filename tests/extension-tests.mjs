@@ -82,6 +82,11 @@ const storeJs = fs.readFileSync(path.join(root, "tweet-store.js"), "utf8");
 const contentJs = fs.readFileSync(path.join(root, "content.js"), "utf8");
 const stylesCss = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 
+// 从 content.js 实际解析观察余量，注入模拟页面。
+// 硬编码数值会在调整 rootMargin 后与实现脱节，导致断言失真。
+const rootMarginMatch = contentJs.match(/rootMargin:\s*"(\d+)px"/);
+const rootMargin = rootMarginMatch ? Number(rootMarginMatch[1]) : 1500;
+
 async function runScenario({ name, setup, scenario }) {
   // 新建标签页
   const target = await fetchJson(`/json/new?about:blank`).catch(() => null);
@@ -138,6 +143,11 @@ async function runScenario({ name, setup, scenario }) {
           },
         };
       `,
+    });
+
+    // 注入观察余量：与扩展的 IntersectionObserver 配置保持一致
+    await cdp.send("Runtime.evaluate", {
+      expression: `window.__rootMargin = ${rootMargin};`,
     });
 
     // 注入扩展样式：判定中推文的隐藏与提示全靠 CSS 实现，

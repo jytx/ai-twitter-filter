@@ -1,4 +1,5 @@
 import { getApiUrl } from "./providers.js";
+import { createScheduler } from "./api-scheduler.js";
 
 // 判定结果缓存：内存 Map 作为一级缓存，并镜像持久化到 chrome.storage.session，
 // 避免 MV3 Service Worker 被回收后缓存丢失、刷新页面时重复调用 API
@@ -14,10 +15,21 @@ const DEFAULT_SETTINGS = {
   filterPrompt: "Is this tweet negative, toxic, or complaining? Reply with true to hide it, false to keep it.",
 };
 
-// API 调用最小间隔（毫秒），配合串行队列防止快速滚动时间线时产生请求风暴
-const MIN_API_INTERVAL_MS = 1000;
-let lastApiCallAt = 0;
-let apiQueue = Promise.resolve();
+// API 调用的并发上限与发起间隔。
+//
+// 判定延迟是用户体感的核心。原先完全串行执行（一个请求跑完才发下一个），
+// 吞吐只有 批次条数/(响应时间+1秒) ≈ 3.75 条/秒；快速滚动时每秒有 5~15 条
+// 推文进入判定范围，必然积压，于是用户翻到哪都要停下来等结果返回。
+//
+// 改为有限并发 + 更短的发起间隔后，吞吐提升到 min(批次条数/间隔, 并发数×批次条数/响应时间)
+// ≈ 15 条/秒，能跟上滚动速度，而总请求数并不增加。
+const MAX_CONCURRENT_REQUESTS = 3;
+const MIN_API_INTERVAL_MS = 500;
+
+const scheduler = createScheduler({
+  maxConcurrent: MAX_CONCURRENT_REQUESTS,
+  minIntervalMs: MIN_API_INTERVAL_MS,
+});
 
 // 读取 API 密钥：密钥只保存在本地（chrome.storage.local），不随 Chrome 账号同步上传。
 // 兼容旧版本：若发现遗留在 sync 中的密钥，迁移到本地后立即从 sync 中删除
@@ -98,18 +110,11 @@ No explanation, no markdown, just the JSON array.`;
   return JSON.parse(cleaned);
 }
 
-// 所有 AI 请求经此函数排队：全局串行执行且相邻两次调用至少间隔 MIN_API_INTERVAL_MS，
-// 一次失败不会阻塞后续调用（错误在队列尾部被吞掉，由调用方各自 catch）
+// 所有 AI 请求经此函数调度：同时在途的不超过 MAX_CONCURRENT_REQUESTS 个，
+// 且相邻两次发起至少间隔 MIN_API_INTERVAL_MS；
+// 单个请求失败不会阻塞其他请求（异常向上抛给各自的调用方 catch）
 function rateLimitedEvaluate(tweets, settings) {
-  const run = async () => {
-    const waitMs = lastApiCallAt + MIN_API_INTERVAL_MS - Date.now();
-    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
-    lastApiCallAt = Date.now();
-    return evaluateWithAI(tweets, settings);
-  };
-  const result = apiQueue.then(run);
-  apiQueue = result.catch(() => {});
-  return result;
+  return scheduler.run(() => evaluateWithAI(tweets, settings));
 }
 
 // Service Worker 启动时从 session 恢复缓存（session 存活于整个浏览器会话期间）
@@ -171,6 +176,9 @@ async function handleEvaluateTweets(tweets) {
   }
 
   // Process in batches of 15
+  // 批次之间并发发起而非逐批等待：一次消息里若有两批，逐批 await 会让
+  // 第二批的延迟叠加在第一批之上。并发上限由 rateLimitedEvaluate 统一控制。
+  const batchTasks = [];
   for (let i = 0; i < uncached.length; i += 15) {
     const batch = uncached.slice(i, i + 15);
 
@@ -183,22 +191,31 @@ async function handleEvaluateTweets(tweets) {
       );
     }
 
-    try {
-      const verdicts = await verdictsPromise;
-      for (const verdict of verdicts) {
-        cache.set(verdict.id, { hide: verdict.hide, reason: verdict.reason || "" });
-        results.push(verdict);
-      }
-      // 每批判定后立即持久化，防止 SW 中途被回收丢掉整批结果
-      await persistCache();
-    } catch (err) {
-      console.error("AI Twitter Filter - API error:", err);
-      // Fail open: show tweets on error
-      for (const tweet of batch) {
-        results.push({ id: tweet.hash, hide: false });
-      }
-    } finally {
-      for (const tweet of batch) inflight.delete(tweet.hash);
+    batchTasks.push(
+      (async () => {
+        try {
+          const verdicts = await verdictsPromise;
+          for (const verdict of verdicts) {
+            cache.set(verdict.id, { hide: verdict.hide, reason: verdict.reason || "" });
+          }
+          // 每批判定后立即持久化，防止 SW 中途被回收丢掉整批结果
+          await persistCache();
+          return verdicts;
+        } catch (err) {
+          console.error("AI Twitter Filter - API error:", err);
+          // Fail open: show tweets on error
+          return batch.map((tweet) => ({ id: tweet.hash, hide: false }));
+        } finally {
+          for (const tweet of batch) inflight.delete(tweet.hash);
+        }
+      })()
+    );
+  }
+
+  const batchResults = await Promise.all(batchTasks);
+  for (const verdicts of batchResults) {
+    for (const verdict of verdicts) {
+      results.push(verdict);
     }
   }
 

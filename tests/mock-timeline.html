@@ -43,7 +43,7 @@
     // 已经进入过视口区域的推文（去重计数）
     const exposedIds = new Set();
     // 进入过“观察带”的推文（去重计数）：
-    // 扩展用 IntersectionObserver 的 800px rootMargin 触发判定，
+    // 扩展用 IntersectionObserver 的 rootMargin 触发判定，
     // 因此推文高度直接决定一次滚动会触发多少条判定。
     const bandIds = new Set();
 
@@ -147,13 +147,17 @@
       // 统计真正进入过视口区域的推文数（去重）：
       // 这是“用户实际可能看到”的推文规模，扩展的请求量应与之同量级。
       // 推文被压缩成 44px 时，同样一屏需要挂载数倍推文，该指标会明显放大。
-      for (const it of items) {
+    // 观察带：视口上下各 rootMargin 像素。
+    // rootMargin 由测试脚本从 content.js 实际解析后注入，
+    // 保证与扩展的 IntersectionObserver 配置始终一致，避免测试脱节。
+    const band = window.__rootMargin || 1500;
+    for (const it of items) {
         if (!it.el) continue;
         if (it.top + it.height > scrollTop && it.top < scrollTop + viewH) {
           exposedIds.add(it.id);
         }
-        // 观察带：视口上下各 800px（与扩展的 rootMargin 一致）
-        if (it.top + it.height > scrollTop - 800 && it.top < scrollTop + viewH + 800) {
+        // 观察带：视口上下各 rootMargin px（与扩展的 rootMargin 一致）
+        if (it.top + it.height > scrollTop - band && it.top < scrollTop + viewH + band) {
           bandIds.add(it.id);
         }
       }
