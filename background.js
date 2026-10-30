@@ -1,5 +1,6 @@
 import { getApiUrl } from "./providers.js";
 import { createScheduler } from "./api-scheduler.js";
+import { buildSystemPrompt, normalizeReason, PROMPT_VERSION } from "./filter-prompt.js";
 
 // 判定结果缓存：内存 Map 作为一级缓存，并镜像持久化到 chrome.storage.session，
 // 避免 MV3 Service Worker 被回收后缓存丢失、刷新页面时重复调用 API
@@ -12,7 +13,8 @@ const DEFAULT_SETTINGS = {
   apiKey: "",
   model: "gpt-4o-mini",
   customBaseUrl: "",
-  filterPrompt: "Is this tweet negative, toxic, or complaining? Reply with true to hide it, false to keep it.",
+  filterPrompt:
+    "这条推文是否负面、有毒或在抱怨？如果是则回复 true 隐藏它，否则回复 false 保留它。",
 };
 
 // API 调用的并发上限与发起间隔。
@@ -56,15 +58,7 @@ async function getSettings() {
 async function evaluateWithAI(tweets, settings) {
   const url = getApiUrl(settings);
 
-  const systemPrompt = `You are a tweet filter. The user has set this filter criteria:
-
-"${settings.filterPrompt}"
-
-You will receive a JSON array of tweets, each with an "id" and "text" field.
-For each tweet, decide if it should be hidden based on the filter criteria.
-Respond with ONLY a JSON array of objects with "id" (string), "hide" (boolean), and "reason" (string, max 3 words, e.g. "toxic negativity", "political rage-bait", "spam promotion") fields.
-If hide is false, reason should be an empty string.
-No explanation, no markdown, just the JSON array.`;
+  const systemPrompt = buildSystemPrompt(settings.filterPrompt);
 
   const userMessage = JSON.stringify(
     tweets.map((t) => ({ id: t.hash, text: t.text }))
@@ -118,8 +112,17 @@ function rateLimitedEvaluate(tweets, settings) {
 }
 
 // Service Worker 启动时从 session 恢复缓存（session 存活于整个浏览器会话期间）
+//
+// 缓存按提示词版本分区：版本不一致说明缓存是旧提示词产出的（如隐藏原因的语言要求
+// 变了），旧结果继续复用会让用户看到旧文案，因此整体丢弃重新判定。
 async function loadCacheFromSession() {
-  const data = await chrome.storage.session.get("filterCache");
+  const data = await chrome.storage.session.get(["filterCache", "filterCacheVersion"]);
+  if (data.filterCacheVersion !== PROMPT_VERSION) {
+    if (data.filterCache) {
+      await chrome.storage.session.remove(["filterCache", "filterCacheVersion"]);
+    }
+    return;
+  }
   if (data.filterCache) {
     for (const [hash, verdict] of Object.entries(data.filterCache)) {
       cache.set(hash, verdict);
@@ -130,12 +133,13 @@ async function loadCacheFromSession() {
 async function persistCache() {
   await chrome.storage.session.set({
     filterCache: Object.fromEntries(cache),
+    filterCacheVersion: PROMPT_VERSION,
   });
 }
 
 async function clearAllCache() {
   cache.clear();
-  await chrome.storage.session.remove("filterCache");
+  await chrome.storage.session.remove(["filterCache", "filterCacheVersion"]);
 }
 
 // 在途请求去重：hash -> 判定结果 Promise
@@ -144,9 +148,10 @@ async function clearAllCache() {
 const inflight = new Map();
 
 // 从一批判定结果中提取指定推文的结果；模型漏答该条时按放行兜底
+// 隐藏原因统一经 normalizeReason 规范化，避免模型偶尔不遵守中文要求时横幅出现英文
 function pickVerdict(verdicts, hash) {
   const found = verdicts.find((v) => v.id === hash);
-  if (found) return { hide: found.hide, reason: found.reason || "" };
+  if (found) return { hide: found.hide, reason: normalizeReason(found.reason) };
   return { hide: false, reason: "" };
 }
 
@@ -196,7 +201,10 @@ async function handleEvaluateTweets(tweets) {
         try {
           const verdicts = await verdictsPromise;
           for (const verdict of verdicts) {
-            cache.set(verdict.id, { hide: verdict.hide, reason: verdict.reason || "" });
+            cache.set(verdict.id, {
+              hide: verdict.hide,
+              reason: normalizeReason(verdict.reason),
+            });
           }
           // 每批判定后立即持久化，防止 SW 中途被回收丢掉整批结果
           await persistCache();
@@ -215,7 +223,11 @@ async function handleEvaluateTweets(tweets) {
   const batchResults = await Promise.all(batchTasks);
   for (const verdicts of batchResults) {
     for (const verdict of verdicts) {
-      results.push(verdict);
+      results.push({
+        id: verdict.id,
+        hide: verdict.hide,
+        reason: normalizeReason(verdict.reason),
+      });
     }
   }
 

@@ -80,7 +80,7 @@ const TweetDom = (() => {
   }
 
   // 创建折叠横幅：第一行为图标 + 作者 + 隐藏原因（整行宽度），
-  // 第二行为 Show/Hide 切换按钮（靠右），上下布局避免理由文字被按钮挤压折行
+  // 第二行为 显示/隐藏 切换按钮（靠右），上下布局避免理由文字被按钮挤压折行
   function createBanner(author, reason) {
     const banner = document.createElement("div");
     banner.className = "ai-filter-banner";
@@ -94,14 +94,14 @@ const TweetDom = (() => {
           <span class="ai-filter-banner-reason"></span>
         </span>
       </div>
-      <button class="ai-filter-banner-show">Show</button>
+      <button class="ai-filter-banner-show">显示</button>
     `;
     banner.querySelector(".ai-filter-banner-author").textContent = author;
     const reasonEl = banner.querySelector(".ai-filter-banner-reason");
-    reasonEl.textContent = reason ? ` — ${reason}` : " — hidden by AI filter";
+    reasonEl.textContent = reason ? ` — ${reason}` : " — 已被 AI 过滤隐藏";
 
-    // Show/Hide 双向切换：横幅常驻不消失，展开后按钮变 Hide 可重新折叠，
-    // 折叠后按钮变回 Show（纯本地切换，不重新调 AI）
+    // 显示/隐藏 双向切换：横幅常驻不消失，展开后按钮变 隐藏 可重新折叠，
+    // 折叠后按钮变回 显示（纯本地切换，不重新调 AI）
     const btn = banner.querySelector(".ai-filter-banner-show");
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -109,14 +109,14 @@ const TweetDom = (() => {
       if (!article) return;
       // 以按钮文字为状态源：横幅是我们创建的节点，不受 X 重渲染覆写影响；
       // article 上的标记 class 仅作样式钩子同步维护
-      if (btn.textContent === "Show") {
+      if (btn.textContent === "显示") {
         article.classList.remove("ai-filter-hidden");
         showChildren(article);
-        btn.textContent = "Hide";
+        btn.textContent = "隐藏";
       } else {
         article.classList.add("ai-filter-hidden");
         hideChildren(article);
-        btn.textContent = "Show";
+        btn.textContent = "显示";
       }
     });
     return banner;

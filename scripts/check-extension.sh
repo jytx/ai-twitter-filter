@@ -14,6 +14,7 @@ check_module background.js
 check_module popup.js
 check_module providers.js
 check_module api-scheduler.js
+check_module filter-prompt.js
 check_module focus-toggle.js
 check_module test-connection.js
 node --check content.js
@@ -29,6 +30,9 @@ node tests/popup-modules.test.mjs
 
 # 并发调度测试：验证 API 调用的并发上限、发起间隔与失败隔离
 node tests/background-concurrency.test.mjs
+
+# 提示词与隐藏原因测试：验证原因要求为中文、非中文返回被拦截、缓存按版本隔离
+node tests/filter-prompt.test.mjs
 
 # 浏览器行为测试：无头 Chrome 加载真实扩展代码，验证判定与滚动行为
 bash scripts/run-extension-tests.sh

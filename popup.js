@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
   model: "gpt-4o-mini",
   customBaseUrl: "",
   filterPrompt:
-    "Is this tweet negative, toxic, or complaining? Reply with true to hide it, false to keep it.",
+    "这条推文是否负面、有毒或在抱怨？如果是则回复 true 隐藏它，否则回复 false 保留它。",
   savedFilters: [],
 };
 
